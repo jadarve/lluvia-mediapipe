@@ -1,0 +1,19 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lluvia",
+    srcs = ["lluvia.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/port:status",
+        "@lluvia//lluvia/cpp/core:core_cc_library",
+    ] + select({
+        "//conditions:default": [],
+        "//mediapipe:android": [
+            "//mediapipe/util/android:asset_manager_util",
+            "//mediapipe/util:resource_util",
+        ],
+    }),
+    alwayslink = 1,
+)

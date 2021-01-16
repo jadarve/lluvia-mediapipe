@@ -1,0 +1,20 @@
+load(
+    "//mediapipe/framework/tool:mediapipe_graph.bzl",
+    "mediapipe_binary_graph",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mobile_calculators",
+    deps = [
+        "//mediapipe/calculators/core:pass_through_calculator",
+    ],
+)
+
+mediapipe_binary_graph(
+    name = "mobile_binary_graph",
+    graph = "passthrough.pbtxt",
+    output_name = "passthrough.binarypb",
+    deps = [":mobile_calculators"],
+)

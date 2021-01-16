@@ -1,0 +1,12 @@
+# Images coming into and out of the graph.
+input_stream: "input_video"
+output_stream: "output_video"
+output_stream: "output_video_streaming"
+output_stream: "output_video_recording"
+
+# Pass through calculator. You can put here your calculators
+node: {
+  calculator: "PassThroughCalculator"
+  input_stream: "input_video"
+  output_stream: "output_video"
+}

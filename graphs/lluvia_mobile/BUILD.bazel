@@ -1,0 +1,24 @@
+load(
+    "//mediapipe/framework/tool:mediapipe_graph.bzl",
+    "mediapipe_binary_graph",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mobile_calculators",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+        "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+        "//mediapipe/mplluvia/calculators:lluvia",
+    ],
+)
+
+mediapipe_binary_graph(
+    name = "lluvia_mobile_binary_graph",
+    graph = "lluvia_mobile.pbtxt",
+    output_name = "lluvia_mobile.binarypb",
+    visibility = ["//visibility:public"],
+    deps = [":mobile_calculators"],
+)

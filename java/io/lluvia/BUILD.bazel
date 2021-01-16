@@ -1,0 +1,25 @@
+#load("//mediapipe/mpgenius/bazel:defs.bzl", "mediapipe_aar", "proto_java_src_generator")
+load("//mediapipe/java/com/google/mediapipe:mediapipe_aar.bzl", "mediapipe_aar")
+
+package(default_visibility = ["//visibility:public"])
+
+# bazel build -c opt --host_crosstool_top=@bazel_tools//tools/cpp:toolchain --fat_apk_cpu=arm64-v8a,armeabi-v7a //mediapipe/mplluvia/java/io/lluvia:lluvia_aar
+"""
+bazel build -c opt --host_crosstool_top=@bazel_tools//tools/cpp:toolchain --fat_apk_cpu=arm64-v8a,armeabi-v7a  //mediapipe/mplluvia/java/io/lluvia:lluvia_aar; \
+    rm -rf ~/workspace/git/lluvia-playground/app/libs/lluvia_aar.aar; \
+    cp bazel-bin/mediapipe/mplluvia/java/io/lluvia/lluvia_aar.aar ~/workspace/git/lluvia-playground/app/libs/
+"""
+
+mediapipe_aar(
+    name = "lluvia_aar",
+    assets = [
+        "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile:lluvia_mobile_binary_graph",
+        "//mediapipe/lluvia-mediapipe/graphs/passthrough:mobile_binary_graph",
+        "@lluvia//lluvia/nodes:lluvia_node_library",
+    ],
+    assets_dir = "",
+    calculators = [
+        "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile:mobile_calculators",
+        "//mediapipe/lluvia-mediapipe/graphs/passthrough:mobile_calculators",
+    ],
+)
