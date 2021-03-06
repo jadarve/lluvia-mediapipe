@@ -9,16 +9,17 @@ cc_library(
     name = "mobile_calculators",
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/calculators/core:flow_limiter_calculator",
         "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
         "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
-        "//mediapipe/lluvia-mediapipe/calculators:lluvia",
+        "//mediapipe/lluvia-mediapipe/calculators:lluvia_from_gpu_buffer",
     ],
 )
 
 mediapipe_binary_graph(
-    name = "lluvia_mobile_binary_graph",
-    graph = "lluvia_mobile.pbtxt",
-    output_name = "lluvia_mobile.binarypb",
+    name = "lluvia_mobile_gpu_binary_graph",
+    graph = "lluvia_mobile_gpu.pbtxt",
+    output_name = "lluvia_mobile_gpu.binarypb",
     visibility = ["//visibility:public"],
     deps = [":mobile_calculators"],
 )

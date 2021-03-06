@@ -14,6 +14,7 @@ mediapipe_aar(
     name = "lluvia_aar",
     assets = [
         "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile:lluvia_mobile_binary_graph",
+        "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile_gpu:lluvia_mobile_gpu_binary_graph",
         "//mediapipe/lluvia-mediapipe/graphs/passthrough:mobile_binary_graph",
         "@lluvia//lluvia/nodes:lluvia_node_library",
     ],
@@ -21,5 +22,6 @@ mediapipe_aar(
     calculators = [
         "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile:mobile_calculators",
         "//mediapipe/lluvia-mediapipe/graphs/passthrough:mobile_calculators",
+        "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile_gpu:mobile_calculators",
     ],
 )
