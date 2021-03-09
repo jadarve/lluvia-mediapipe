@@ -16,7 +16,9 @@ mediapipe_aar(
         "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile:lluvia_mobile_binary_graph",
         "//mediapipe/lluvia-mediapipe/graphs/lluvia_mobile_gpu:lluvia_mobile_gpu_binary_graph",
         "//mediapipe/lluvia-mediapipe/graphs/passthrough:mobile_binary_graph",
-        "@lluvia//lluvia/nodes:lluvia_node_library",
+
+        # FIXME: this breaks in Bazel 4
+        # "@lluvia//lluvia/nodes:lluvia_node_library.runfiles",
     ],
     assets_dir = "",
     calculators = [
