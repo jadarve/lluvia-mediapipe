@@ -19,7 +19,6 @@
 #include "mediapipe/util/resource_util.h"
 
 #include <lluvia/core.h>
-#include <vulkan/vulkan.hpp>
 
 #include <memory>
 #include <mutex>
@@ -111,12 +110,12 @@ class LluviaFromGPUBufferCalculator : public CalculatorBase {
 
         m_session = ll::Session::create(sessionDesc);
 
-        auto memoryProperties = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+        auto memoryProperties = ll::MemoryPropertyFlagBits::HostVisible | ll::MemoryPropertyFlagBits::HostCoherent;
         m_stagingMemory = m_session->createMemory(memoryProperties, 0, false);
-        m_deviceLocalMemory = m_session->createMemory(vk::MemoryPropertyFlagBits::eDeviceLocal, 32 * 1024 * 1024, false);
+        m_deviceLocalMemory = m_session->createMemory(ll::MemoryPropertyFlagBits::DeviceLocal, 32 * 1024 * 1024, false);
 
 
-        LOG(INFO) << "LluviaCalculator: memories created: statingMemory: " << m_stagingMemory->getPageSize() << " deviceLocalMemory: " << m_deviceLocalMemory->getPageSize();
+        LOG(INFO) << "LluviaCalculator: memories created: stagingMemory: " << m_stagingMemory->getPageSize() << " deviceLocalMemory: " << m_deviceLocalMemory->getPageSize();
 
         // path to the .zip containing all the nodes
         auto string_path = std::string {};
@@ -220,10 +219,10 @@ class LluviaFromGPUBufferCalculator : public CalculatorBase {
         m_computeNode =  m_session->createComputeNode("lluvia/RGBA2Gray");
 
 
-        const vk::ImageUsageFlags imgUsageFlags = { vk::ImageUsageFlagBits::eStorage
-                                                    | vk::ImageUsageFlagBits::eSampled
-                                                    | vk::ImageUsageFlagBits::eTransferDst
-                                                    | vk::ImageUsageFlagBits::eTransferSrc};
+        const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
+                                                    | ll::ImageUsageFlagBits::Sampled
+                                                    | ll::ImageUsageFlagBits::TransferDst
+                                                    | ll::ImageUsageFlagBits::TransferSrc};
 
         const auto imgDesc = ll::ImageDescriptor{1, static_cast<uint32_t >(height), static_cast<uint32_t>(width),
                                                  ll::ChannelCount::C4, ll::ChannelType::Uint8}
@@ -236,7 +235,7 @@ class LluviaFromGPUBufferCalculator : public CalculatorBase {
                                                                                  false});
 
 
-        m_inputImage->changeImageLayout(vk::ImageLayout::eGeneral);
+        m_inputImage->changeImageLayout(ll::ImageLayout::General);
 
         // FIXME: input name should be passed as parameter
         m_computeNode->bind("in_rgba", m_inputImageView);
@@ -270,11 +269,11 @@ class LluviaFromGPUBufferCalculator : public CalculatorBase {
         m_cmdBuffer->begin();
 
         // Copy staging buffer to m_inputImage. Consider changing image layout.
-        m_cmdBuffer->changeImageLayout(*m_inputImage, vk::ImageLayout::eTransferDstOptimal);
+        m_cmdBuffer->changeImageLayout(*m_inputImage, ll::ImageLayout::TransferDstOptimal);
         m_cmdBuffer->memoryBarrier();
         m_cmdBuffer->copyBufferToImage(*m_inputStagingBuffer, *m_inputImage);
         m_cmdBuffer->memoryBarrier(); // TODO: needed?
-        m_cmdBuffer->changeImageLayout(*m_inputImage, vk::ImageLayout::eGeneral);
+        m_cmdBuffer->changeImageLayout(*m_inputImage, ll::ImageLayout::General);
         m_cmdBuffer->memoryBarrier();
 
         // Compute
@@ -282,11 +281,11 @@ class LluviaFromGPUBufferCalculator : public CalculatorBase {
         m_cmdBuffer->memoryBarrier();
 
         // Copy output image to staging buffer
-        m_cmdBuffer->changeImageLayout(*m_outputImage, vk::ImageLayout::eTransferSrcOptimal);
+        m_cmdBuffer->changeImageLayout(*m_outputImage, ll::ImageLayout::TransferSrcOptimal);
         m_cmdBuffer->memoryBarrier();
         m_cmdBuffer->copyImageToBuffer(*m_outputImage, *m_outputStagingBuffer);
         m_cmdBuffer->memoryBarrier();
-        m_cmdBuffer->changeImageLayout(*m_outputImage, vk::ImageLayout::eGeneral);
+        m_cmdBuffer->changeImageLayout(*m_outputImage, ll::ImageLayout::General);
 
         m_cmdBuffer->end();
 

@@ -9,10 +9,11 @@ cc_library(
         "//mediapipe/framework/port:status",
         "@lluvia//lluvia/cpp/core:core_cc_library",
     ] + select({
-        "//conditions:default": [],
+        "//conditions:default": [
+            "//mediapipe/util:resource_util",
+        ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",
-            "//mediapipe/util:resource_util",
         ],
     }),
     alwayslink = 1,
@@ -31,11 +32,14 @@ cc_library(
         "//mediapipe/framework/port:status",
         "@lluvia//lluvia/cpp/core:core_cc_library",
     ] + select({
-        "//conditions:default": [],
-        "//mediapipe:apple": ["//mediapipe/objc:util"],
+        "//conditions:default": [
+            "//mediapipe/util:resource_util",
+        ],
+        "//mediapipe:apple": [
+            "//mediapipe/objc:util"
+        ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",
-            "//mediapipe/util:resource_util",
         ],
     }),
     alwayslink = 1,
