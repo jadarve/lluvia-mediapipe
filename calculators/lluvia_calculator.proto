@@ -23,7 +23,13 @@ message LluviaCalculatorOptions {
     optional LluviaCalculatorOptions ext = 227563647;
   }
 
+  optional bool enable_debug = 1 [default = false];
+
+  // The container node to run inside the calculator
+  optional string container_node = 2;
+
   // paths to node library archives to load during session creation
-  optional string libraryPath = 1;
+  repeated string library_path = 3;
+  
 }
 

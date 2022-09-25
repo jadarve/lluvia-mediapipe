@@ -1,4 +1,5 @@
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+load("@lluvia//lluvia/bazel/node:def.bzl", "ll_node", "ll_node_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,7 +12,6 @@ mediapipe_proto_library(
         "//mediapipe/framework:calculator_proto",
     ],
 )
-
 
 cc_library(
     name = "lluvia_calculator",
@@ -33,6 +33,23 @@ cc_library(
     alwayslink = 1,
 )
 
+
+ll_node(
+    name = "LluviaCalculator_node",
+    builder = "LluviaCalculator.lua",
+    archivePath = "lluvia/mediapipe",
+    visibility = ["//visibility:public"],
+)
+
+ll_node_library(
+    name = "lluvia_mediapipe_library",
+    nodes = [
+        ":LluviaCalculator_node"
+    ],
+    visibility = ["//visibility:public"]
+)
+
+
 cc_test(
     name = "lluvia_calculator_test",
     srcs = ["lluvia_calculator_test.cc"],
@@ -47,6 +64,7 @@ cc_test(
     ],
     data = [
         "@lluvia//lluvia/nodes:lluvia_node_library",
+        ":lluvia_mediapipe_library"
     ]
 )
 

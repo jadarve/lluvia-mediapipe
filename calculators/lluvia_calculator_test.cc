@@ -57,7 +57,11 @@ TEST(LluviaCalculatorTest, TestMoni) {
     ASSERT_NE(nullptr, runfiles);
 
     auto libraryPath = runfiles->Rlocation("lluvia/lluvia/nodes/lluvia_node_library.zip");
+    auto lluviaMediapipeLibraryPath = runfiles->Rlocation("mediapipe/mediapipe/lluvia-mediapipe/calculators/lluvia_mediapipe_library.zip");
+    
     LOG(INFO) << "LLUVIA_TEST: library path: " << libraryPath;
+    LOG(INFO) << "LLUVIA_TEST: library path: " << lluviaMediapipeLibraryPath;
+
 
     CalculatorGraphConfig::Node node_config =
         ParseTextProtoOrDie<CalculatorGraphConfig::Node>(
@@ -68,11 +72,17 @@ TEST(LluviaCalculatorTest, TestMoni) {
                     output_stream: "output_image"
                     node_options {
                         [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
-                            libraryPath: "$0"
+                            enable_debug: true
+
+                            container_node: "lluvia/mediapipe/LluviaCalculator"
+
+                            library_path: "$0"
+                            library_path: "$1"
                         }
                     }
                 )pb",
-                libraryPath
+                libraryPath,
+                lluviaMediapipeLibraryPath
             )
         );
     
