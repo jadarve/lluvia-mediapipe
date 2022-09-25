@@ -5,6 +5,8 @@
 
 #include <lluvia/core.h>
 
+#include "mediapipe/lluvia-mediapipe/calculators/lluvia_calculator.pb.h"
+
 #include <memory>
 
 namespace mediapipe {
@@ -21,8 +23,11 @@ namespace mediapipe {
         void InitNode(const ImageFrame*);
 
     private:
+        lluvia::LluviaCalculatorOptions m_options;
+
         std::shared_ptr<ll::Session> m_session {};
-        std::shared_ptr<ll::Memory> m_memory {};
+        std::shared_ptr<ll::Memory> m_hostMemory {};
+        std::shared_ptr<ll::Memory> m_deviceMemory {};
 
         std::unique_ptr<ll::CommandBuffer> m_cmdBuffer {};
 
@@ -40,10 +45,9 @@ namespace mediapipe {
         std::once_flag m_configureNode {};
     };
 
-    ::mediapipe::Status LluviaCalculator::GetContract(
-            CalculatorContract* cc) {
+    ::mediapipe::Status LluviaCalculator::GetContract(CalculatorContract* cc) {
 
-        // FIXME: try to support GPUBuffer instead :)
+        // FIXME: try to support GPUBuffer instead. Use AnyOf
         cc->Inputs().Index(0).Set<ImageFrame>();
         cc->Outputs().Index(0).Set<ImageFrame>();
         return ::mediapipe::OkStatus();
@@ -51,43 +55,53 @@ namespace mediapipe {
 
     ::mediapipe::Status LluviaCalculator::Open(CalculatorContext* cc) {
 
+        m_options = cc->Options<lluvia::LluviaCalculatorOptions>();
+
+        LOG(INFO) << "LLUVIA: library path: " << m_options.librarypath();
+
+        // TODO: options for creating the session
         m_session = ll::Session::create();
 
         // FIXME: memory properties depend on the platform
-        auto memoryProperties = ll::MemoryPropertyFlagBits::HostVisible | ll::MemoryPropertyFlagBits::HostCoherent;
-        m_memory = m_session->createMemory(memoryProperties, 32 * 1024 * 1024, false);
+        auto hostMemoryProperties = ll::MemoryPropertyFlagBits::HostVisible | ll::MemoryPropertyFlagBits::HostCoherent;
+        m_hostMemory = m_session->createMemory(hostMemoryProperties, 32 * 1024 * 1024, false);
 
-        LOG(INFO) << "JUAN: memory created: " << m_memory->getPageSize();
+        auto deviceMemoryProperties = ll::MemoryPropertyFlagBits::DeviceLocal;
+        m_deviceMemory = m_session->createMemory(deviceMemoryProperties, 32 * 1024 * 1024, false);
+
+        LOG(INFO) << "LLUVIA: host memory created: " << m_hostMemory->getPageSize();
+        LOG(INFO) << "LLUVIA: device memory created: " << m_hostMemory->getPageSize();
 
         // open a file. It works!!!
-        auto string_path = std::string {};
-        ASSIGN_OR_RETURN(string_path, mediapipe::PathToResourceAsFile("lluvia_node_library.zip"));
-        LOG(INFO) << "JUAN: file path: " << string_path;
+        // FIXME: path to the node library should be part of the node configuration
+        // auto string_path = std::string {};
+        // ASSIGN_OR_RETURN(string_path, mediapipe::PathToResourceAsFile("lluvia_node_library.zip"));
+        // LOG(INFO) << "LLUVIA: file path: " << string_path;
 
-        m_session->loadLibrary(string_path);
+        m_session->loadLibrary(m_options.librarypath());
 
-        auto program = m_session->getProgram("lluvia/RGBA2Gray");
-        LOG(INFO) << "JUAN: program found: " << (program != nullptr);
+        auto program = m_session->getProgram("lluvia/color/RGBA2Gray.comp");
+        LOG(INFO) << "LLUVIA: program found: " << (program != nullptr);
 
-        auto desc = m_session->createComputeNodeDescriptor("lluvia/RGBA2Gray");
-        LOG(INFO) << "JUAN: desc: " << desc.getBuilderName();
+        auto desc = m_session->createComputeNodeDescriptor("lluvia/color/RGBA2Gray");
+        LOG(INFO) << "LLUVIA: desc: " << desc.getBuilderName();
 
         return ::mediapipe::OkStatus();
     }
 
     void LluviaCalculator::InitNode(const ImageFrame* inputImage) {
 
-        LOG(INFO) << "JUAN: InitNode() start";
+        LOG(INFO) << "LLUVIA: InitNode() start";
 
         const auto width = inputImage->Width();
         const auto height = inputImage->Height();
 
-        LOG(INFO) << "JUAN: InitNode() width: " << width << " height: " << height;
+        LOG(INFO) << "LLUVIA: InitNode() width: " << width << " height: " << height;
 
-        m_computeNode =  m_session->createComputeNode("lluvia/RGBA2Gray");
+        m_computeNode =  m_session->createComputeNode("lluvia/color/RGBA2Gray");
 
         // TODO: usage flags
-        m_inputStagingBuffer = m_memory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
+        m_inputStagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
 
         const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
                                                     | ll::ImageUsageFlagBits::Sampled
@@ -98,7 +112,7 @@ namespace mediapipe {
                                                  ll::ChannelCount::C4, ll::ChannelType::Uint8}
                  .setUsageFlags(imgUsageFlags);
 
-        m_inputImage = m_memory->createImage(imgDesc);
+        m_inputImage = m_hostMemory->createImage(imgDesc);
         m_inputImageView = m_inputImage->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
                                                                                  ll::ImageFilterMode::Nearest,
                                                                                  false,
@@ -113,7 +127,7 @@ namespace mediapipe {
         m_outputImageView = std::static_pointer_cast<ll::ImageView>(m_computeNode->getPort("out_gray"));
         m_outputImage = m_outputImageView->getImage();
         // FIXME: what's the correct size?
-        m_outputStagingBuffer = m_memory->createBuffer(static_cast<uint64_t>(width * height));
+        m_outputStagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(width * height));
 
 
         // Create command buffer
@@ -141,7 +155,7 @@ namespace mediapipe {
 
         m_cmdBuffer->end();
 
-        LOG(INFO) << "JUAN: InitNode() finish";
+        LOG(INFO) << "LLUVIA: InitNode() finish";
     }
 
     ::mediapipe::Status LluviaCalculator::Process(CalculatorContext* cc) {
