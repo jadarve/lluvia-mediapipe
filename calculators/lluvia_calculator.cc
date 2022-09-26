@@ -8,6 +8,7 @@
 #include "mediapipe/lluvia-mediapipe/calculators/lluvia_calculator.pb.h"
 
 #include <memory>
+#include <tuple>
 
 namespace mediapipe {
 
@@ -23,8 +24,11 @@ public:
     
 
 private:
-    void InitNode(const ImageFrame*);
-    void InitInputImage(const ImageFrame*);
+    ::mediapipe::Status InitNode(const ImageFrame*);
+    ::mediapipe::Status InitInputImage(const ImageFrame*);
+
+    std::tuple<bool, ll::ChannelCount, ll::ChannelType> getLluviaImageFormat(const mediapipe::ImageFormat_Format format);
+    std::tuple<bool, mediapipe::ImageFormat_Format> getMediapipeImageFormat(const ll::ChannelCount channelCount, const ll::ChannelType channelType);
 
     lluvia::LluviaCalculatorOptions m_options;
 
@@ -37,10 +41,12 @@ private:
     // the container node
     std::shared_ptr<ll::ContainerNode> m_containerNode {};
 
+    // TODO: support more than one input
     std::shared_ptr<ll::Buffer> m_inputStagingBuffer {};
     std::shared_ptr<ll::Image> m_inputImage {};
     std::shared_ptr<ll::ImageView> m_inputImageView {};
 
+    // TODO: support more than one output
     std::shared_ptr<ll::Buffer> m_outputStagingBuffer {};
     std::shared_ptr<ll::Image> m_outputImage {};
     std::shared_ptr<ll::ImageView> m_outputImageView {};
@@ -54,8 +60,10 @@ private:
     LOG(INFO) << "LLUVIA: GetContract()";
 
     // FIXME: try to support GPUBuffer instead. Use AnyOf
-    cc->Inputs().Index(0).Set<ImageFrame>();
-    cc->Outputs().Index(0).Set<ImageFrame>();
+    // cc->Inputs().Index(0).Set<ImageFrame>();
+    cc->Inputs().Tag("IN_0").Set<ImageFrame>();
+
+    cc->Outputs().Tag("OUT_0").Set<ImageFrame>();
     return ::mediapipe::OkStatus();
 }
 
@@ -86,6 +94,12 @@ private:
         m_session->loadLibrary(m_options.library_path(i));
     }
 
+    // execute all the scripts in the session
+    for (auto i = 0; i < m_options.script_path_size(); ++i) {
+        LOG(INFO) << "LLUVIA: script path: " << m_options.script_path(i);
+        m_session->scriptFile(m_options.script_path(i));
+    }
+
     for (const auto& desc : m_session->getNodeBuilderDescriptors()) {
         LOG(INFO) << "LLUVIA: " << desc.name;
     }
@@ -93,14 +107,17 @@ private:
     return ::mediapipe::OkStatus();
 }
 
-void LluviaCalculator::InitNode(const ImageFrame* inputImage) {
+::mediapipe::Status LluviaCalculator::InitNode(const ImageFrame* inputImage) {
 
     LOG(INFO) << "LLUVIA: InitNode() start";
 
     const auto width = inputImage->Width();
     const auto height = inputImage->Height();
 
-    InitInputImage(inputImage);
+    const auto initImageStatus = InitInputImage(inputImage);
+    if (initImageStatus != ::mediapipe::OkStatus()) {
+        return initImageStatus;
+    }
 
     LOG(INFO) << "LLUVIA: InitNode() width: " << width << " height: " << height;
 
@@ -108,12 +125,11 @@ void LluviaCalculator::InitNode(const ImageFrame* inputImage) {
 
     ///////////////////////////////////////////////////////////////////////////
     // Port bindings
-    // FIXME: hardcoded port names
+    // FIXME: Use input_port_bindings
     m_containerNode->bind("in_image", m_inputImageView);
 
     ///////////////////////////////////////////////////////////////////////////
     // Parameters
-
     // TODO
 
     ///////////////////////////////////////////////////////////////////////////
@@ -155,9 +171,11 @@ void LluviaCalculator::InitNode(const ImageFrame* inputImage) {
     m_cmdBuffer->end();
 
     LOG(INFO) << "LLUVIA: InitNode() finish";
+
+    return ::mediapipe::OkStatus();
 }
 
-void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
+::mediapipe::Status LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
 
     const auto width = inputImage->Width();
     const auto height = inputImage->Height();
@@ -170,8 +188,18 @@ void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
                                                 | ll::ImageUsageFlagBits::TransferDst
                                                 | ll::ImageUsageFlagBits::TransferSrc};
 
+    auto imageFormatSupported = false;
+    auto channelCount = ll::ChannelCount::C1;
+    auto channelType = ll::ChannelType::Uint8;
+
+    std::tie(imageFormatSupported, channelCount, channelType) = getLluviaImageFormat(inputImage->Format());
+
+    if (!imageFormatSupported) {
+        return ::mediapipe::UnknownError("image format not supported");
+    }
+
     const auto imgDesc = ll::ImageDescriptor{1, static_cast<uint32_t >(height), static_cast<uint32_t>(width),
-                                                ll::ChannelCount::C4, ll::ChannelType::Uint8}
+                                                channelCount, channelType}
                 .setUsageFlags(imgUsageFlags);
 
     m_inputImage = m_hostMemory->createImage(imgDesc);
@@ -182,12 +210,14 @@ void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
 
 
     m_inputImage->changeImageLayout(ll::ImageLayout::General);
+
+    return ::mediapipe::OkStatus();
 }
 
 ::mediapipe::Status LluviaCalculator::Process(CalculatorContext* cc) {
 
 
-    auto& inputImage = cc->Inputs().Index(0).Get<ImageFrame>();
+    auto& inputImage = cc->Inputs().Tag("IN_0").Get<ImageFrame>();
 
     // init the internals given a concrete ImageFrame
     std::call_once(m_configureNode, &LluviaCalculator::InitNode, this, &inputImage);
@@ -201,8 +231,16 @@ void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
 
     m_session->run(*m_cmdBuffer);
 
+    ::mediapipe::ImageFormat_Format outputImageFormat = ::mediapipe::ImageFormat_Format_UNKNOWN;
+    bool imageFormatFound = false;
+
+    std::tie(imageFormatFound, outputImageFormat) =  getMediapipeImageFormat(m_outputImage->getChannelCount(), m_outputImage->getChannelType());
+    if (!imageFormatFound) {
+        return ::mediapipe::UnknownError("unable to find compatible output image format");
+    }
+
     std::unique_ptr<ImageFrame> outputImage = absl::make_unique<ImageFrame>(
-            ImageFormat::GRAY8, inputImage.Width(), inputImage.Height());
+            outputImageFormat, m_outputImage->getWidth(), m_outputImage->getHeight());
 
     // copy staging buffer to output ImageFrame
     {
@@ -216,7 +254,7 @@ void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
                             << std::to_string(static_cast<int>(outputImage->Format())) << ", channel size: "
                             << std::to_string(outputImage->ChannelSize());
 
-    cc->Outputs().Index(0).Add(outputImage.release(), cc->InputTimestamp());
+    cc->Outputs().Tag("OUT_0").Add(outputImage.release(), cc->InputTimestamp());
 
 
     return ::mediapipe::OkStatus();
@@ -224,6 +262,80 @@ void LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
 
 ::mediapipe::Status LluviaCalculator::Close(CalculatorContext* cc) {
     return ::mediapipe::OkStatus();
+}
+
+std::tuple<bool, ll::ChannelCount, ll::ChannelType> LluviaCalculator::getLluviaImageFormat(const mediapipe::ImageFormat_Format format) {
+
+    switch(format) {
+
+        case ImageFormat_Format_SRGB:
+            return std::make_tuple(true, ll::ChannelCount::C3, ll::ChannelType::Uint8);
+        
+        case ImageFormat_Format_SRGBA:
+            return std::make_tuple(true, ll::ChannelCount::C4, ll::ChannelType::Uint8);
+        
+        case ImageFormat_Format_GRAY8:
+            return std::make_tuple(true, ll::ChannelCount::C1, ll::ChannelType::Uint8);
+        
+        case ImageFormat_Format_GRAY16:
+            return std::make_tuple(true, ll::ChannelCount::C1, ll::ChannelType::Uint16);
+        
+        case ImageFormat_Format_SRGBA64:
+            return std::make_tuple(true, ll::ChannelCount::C4, ll::ChannelType::Uint64);
+        
+        case ImageFormat_Format_VEC32F1:
+            return std::make_tuple(true, ll::ChannelCount::C1, ll::ChannelType::Float32);
+        
+        case ImageFormat_Format_VEC32F2:
+            return std::make_tuple(true, ll::ChannelCount::C2, ll::ChannelType::Float32);
+        
+        default:
+            return std::make_tuple(false, ll::ChannelCount::C1, ll::ChannelType::Uint8);
+    }
+}
+
+std::tuple<bool, mediapipe::ImageFormat_Format> LluviaCalculator::getMediapipeImageFormat(const ll::ChannelCount channelCount, const ll::ChannelType channelType) {
+
+    switch(channelCount) {
+
+        case ll::ChannelCount::C1:
+            switch (channelType) {
+            case ll::ChannelType::Uint8:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_GRAY8);
+            case ll::ChannelType::Uint16:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_GRAY16);
+            case ll::ChannelType::Float32:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_VEC32F1);
+            default:
+                return std::make_tuple(false, ::mediapipe::ImageFormat_Format_UNKNOWN);
+            }
+
+        case ll::ChannelCount::C2:
+            switch (channelType) {
+            case ll::ChannelType::Float32:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_VEC32F2);
+            default:
+                return std::make_tuple(false, ::mediapipe::ImageFormat_Format_UNKNOWN);
+            }
+
+        case ll::ChannelCount::C3:
+            switch (channelType) {
+            case ll::ChannelType::Uint8:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_SRGB);
+            default:
+                return std::make_tuple(false, ::mediapipe::ImageFormat_Format_UNKNOWN);
+            }
+
+        case ll::ChannelCount::C4:
+            switch (channelType) {
+            case ll::ChannelType::Uint8:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_SRGBA);
+            case ll::ChannelType::Uint64:
+                return std::make_tuple(true, ::mediapipe::ImageFormat_Format_SRGBA64);
+            default:
+                return std::make_tuple(false, ::mediapipe::ImageFormat_Format_UNKNOWN);
+            }
+    }
 }
 
 REGISTER_CALCULATOR(LluviaCalculator);

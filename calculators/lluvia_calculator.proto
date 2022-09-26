@@ -30,6 +30,18 @@ message LluviaCalculatorOptions {
 
   // paths to node library archives to load during session creation
   repeated string library_path = 3;
+
+  // paths to script files to run after libraries are loaded
+  repeated string script_path = 4;
+
+  repeated PortBinding input_port_binding = 5;
+
+  repeated PortBinding output_port_binding = 6;
   
 }
 
+message PortBinding {
+
+  required string mediapipe_tag = 1;
+  required string lluvia_port = 2;
+}
