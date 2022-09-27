@@ -85,24 +85,24 @@ private:
     auto deviceMemoryProperties = ll::MemoryPropertyFlagBits::DeviceLocal;
     m_deviceMemory = m_session->createMemory(deviceMemoryProperties, 32 * 1024 * 1024, false);
 
-    LOG(INFO) << "LLUVIA: host memory created: " << m_hostMemory->getPageSize();
-    LOG(INFO) << "LLUVIA: device memory created: " << m_hostMemory->getPageSize();
+    // LOG(INFO) << "LLUVIA: host memory created: " << m_hostMemory->getPageSize();
+    // LOG(INFO) << "LLUVIA: device memory created: " << m_hostMemory->getPageSize();
 
     // load all supplied libraries to the session
     for (auto i = 0; i < m_options.library_path_size(); ++i) {
-        LOG(INFO) << "LLUVIA: library path: " << m_options.library_path(i);
+        // LOG(INFO) << "LLUVIA: library path: " << m_options.library_path(i);
         m_session->loadLibrary(m_options.library_path(i));
     }
 
     // execute all the scripts in the session
     for (auto i = 0; i < m_options.script_path_size(); ++i) {
-        LOG(INFO) << "LLUVIA: script path: " << m_options.script_path(i);
+        // LOG(INFO) << "LLUVIA: script path: " << m_options.script_path(i);
         m_session->scriptFile(m_options.script_path(i));
     }
 
-    for (const auto& desc : m_session->getNodeBuilderDescriptors()) {
-        LOG(INFO) << "LLUVIA: " << desc.name;
-    }
+    // for (const auto& desc : m_session->getNodeBuilderDescriptors()) {
+    //     LOG(INFO) << "LLUVIA: " << desc.name;
+    // }
 
     return ::mediapipe::OkStatus();
 }
@@ -119,7 +119,7 @@ private:
         return initImageStatus;
     }
 
-    LOG(INFO) << "LLUVIA: InitNode() width: " << width << " height: " << height;
+    // LOG(INFO) << "LLUVIA: InitNode() width: " << width << " height: " << height;
 
     m_containerNode = m_session->createContainerNode(m_options.container_node());
 
@@ -141,8 +141,7 @@ private:
     m_outputImageView = std::static_pointer_cast<ll::ImageView>(m_containerNode->getPort("out_image"));
     m_outputImage = m_outputImageView->getImage();
 
-    // FIXME: what's the correct size?
-    m_outputStagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(width * height));
+    m_outputStagingBuffer = m_hostMemory->createBuffer(m_outputImage->getMinimumSize());
 
     ///////////////////////////////////////////////////////////////////////////
     // Command buffer

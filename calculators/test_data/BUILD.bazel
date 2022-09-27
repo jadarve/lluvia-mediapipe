@@ -1,0 +1,8 @@
+
+filegroup(
+    name = "test_data",
+    srcs = [
+        "PassthroughContainerNode.lua",
+    ],
+    visibility = ["//visibility:public"]
+)
