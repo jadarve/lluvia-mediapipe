@@ -12,6 +12,14 @@
 
 namespace mediapipe {
 
+
+struct PortHandler {
+    std::shared_ptr<ll::Buffer> stagingBuffer;
+    std::unique_ptr<uint8_t [], ll::Buffer::BufferMapDeleter> stagingBufferMappedPtr;
+    std::shared_ptr<ll::Image> image;
+    std::shared_ptr<ll::ImageView> imageView;
+};
+
 // Calculator to pass a CPU image through. It prints in the logs the
 // image attributes such as resolution and format.
 class LluviaCalculator : public CalculatorBase {
@@ -41,16 +49,9 @@ private:
     // the container node
     std::shared_ptr<ll::ContainerNode> m_containerNode {};
 
-    // TODO: support more than one input
-    std::shared_ptr<ll::Buffer> m_inputStagingBuffer {};
-    std::shared_ptr<ll::Image> m_inputImage {};
-    std::shared_ptr<ll::ImageView> m_inputImageView {};
-
-    // TODO: support more than one output
-    std::shared_ptr<ll::Buffer> m_outputStagingBuffer {};
-    std::shared_ptr<ll::Image> m_outputImage {};
-    std::shared_ptr<ll::ImageView> m_outputImageView {};
-
+    // TODO: support more than one input and output
+    mediapipe::PortHandler m_inputHandler;
+    mediapipe::PortHandler m_outputHandler;
 
     std::once_flag m_configureNode {};
 };
@@ -126,7 +127,7 @@ private:
     ///////////////////////////////////////////////////////////////////////////
     // Port bindings
     // FIXME: Use input_port_bindings
-    m_containerNode->bind("in_image", m_inputImageView);
+    m_containerNode->bind("in_image", m_inputHandler.imageView);
 
     ///////////////////////////////////////////////////////////////////////////
     // Parameters
@@ -138,10 +139,10 @@ private:
 
     ///////////////////////////////////////////////////////////////////////////
     // Outputs
-    m_outputImageView = std::static_pointer_cast<ll::ImageView>(m_containerNode->getPort("out_image"));
-    m_outputImage = m_outputImageView->getImage();
-
-    m_outputStagingBuffer = m_hostMemory->createBuffer(m_outputImage->getMinimumSize());
+    m_outputHandler.imageView = std::static_pointer_cast<ll::ImageView>(m_containerNode->getPort("out_image"));
+    m_outputHandler.image = m_outputHandler.imageView->getImage();
+    m_outputHandler.stagingBuffer = m_hostMemory->createBuffer(m_outputHandler.image->getMinimumSize());
+    m_outputHandler.stagingBufferMappedPtr = m_outputHandler.stagingBuffer->map<uint8_t []>();
 
     ///////////////////////////////////////////////////////////////////////////
     // Command buffer
@@ -149,11 +150,11 @@ private:
     m_cmdBuffer->begin();
 
     // Copy staging buffer to m_inputImage. Consider changing image layout.
-    m_cmdBuffer->changeImageLayout(*m_inputImage, ll::ImageLayout::TransferDstOptimal);
+    m_cmdBuffer->changeImageLayout(*m_inputHandler.image, ll::ImageLayout::TransferDstOptimal);
     m_cmdBuffer->memoryBarrier();
-    m_cmdBuffer->copyBufferToImage(*m_inputStagingBuffer, *m_inputImage);
+    m_cmdBuffer->copyBufferToImage(*m_inputHandler.stagingBuffer, *m_inputHandler.image);
     m_cmdBuffer->memoryBarrier(); // TODO: needed?
-    m_cmdBuffer->changeImageLayout(*m_inputImage, ll::ImageLayout::General);
+    m_cmdBuffer->changeImageLayout(*m_inputHandler.image, ll::ImageLayout::General);
     m_cmdBuffer->memoryBarrier();
 
     // Compute
@@ -161,11 +162,12 @@ private:
     m_cmdBuffer->memoryBarrier();
 
     // Copy output image to staging buffer
-    m_cmdBuffer->changeImageLayout(*m_outputImage, ll::ImageLayout::TransferSrcOptimal);
+    m_cmdBuffer->changeImageLayout(*m_outputHandler.image, ll::ImageLayout::TransferSrcOptimal);
     m_cmdBuffer->memoryBarrier();
-    m_cmdBuffer->copyImageToBuffer(*m_outputImage, *m_outputStagingBuffer);
+    m_cmdBuffer->copyImageToBuffer(*m_outputHandler.image, *m_outputHandler.stagingBuffer);
     m_cmdBuffer->memoryBarrier();
-    m_cmdBuffer->changeImageLayout(*m_outputImage, ll::ImageLayout::General);
+    m_cmdBuffer->changeImageLayout(*m_outputHandler.image, ll::ImageLayout::General);
+    m_cmdBuffer->memoryBarrier();
 
     m_cmdBuffer->end();
 
@@ -180,7 +182,8 @@ private:
     const auto height = inputImage->Height();
 
     // TODO: usage flags
-    m_inputStagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
+    m_inputHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
+    m_inputHandler.stagingBufferMappedPtr = m_inputHandler.stagingBuffer->map<uint8_t []>();
 
     const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
                                                 | ll::ImageUsageFlagBits::Sampled
@@ -201,14 +204,14 @@ private:
                                                 channelCount, channelType}
                 .setUsageFlags(imgUsageFlags);
 
-    m_inputImage = m_hostMemory->createImage(imgDesc);
-    m_inputImageView = m_inputImage->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
+    m_inputHandler.image = m_hostMemory->createImage(imgDesc);
+    m_inputHandler.imageView = m_inputHandler.image->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
                                                                                 ll::ImageFilterMode::Nearest,
                                                                                 false,
                                                                                 false});
 
 
-    m_inputImage->changeImageLayout(ll::ImageLayout::General);
+    m_inputHandler.image->changeImageLayout(ll::ImageLayout::General);
 
     return ::mediapipe::OkStatus();
 }
@@ -222,31 +225,22 @@ private:
     std::call_once(m_configureNode, &LluviaCalculator::InitNode, this, &inputImage);
 
     // Copy input image to a staging buffer
-    {
-        // TODO: staging buffer can stay mapped
-        auto ptr = m_inputStagingBuffer->map<uint8_t []>();
-        inputImage.CopyToBuffer(&ptr[0], m_inputStagingBuffer->getSize());
-    }
+    inputImage.CopyToBuffer(&m_inputHandler.stagingBufferMappedPtr[0], m_inputHandler.stagingBuffer->getSize());
 
     m_session->run(*m_cmdBuffer);
 
     ::mediapipe::ImageFormat_Format outputImageFormat = ::mediapipe::ImageFormat_Format_UNKNOWN;
     bool imageFormatFound = false;
 
-    std::tie(imageFormatFound, outputImageFormat) =  getMediapipeImageFormat(m_outputImage->getChannelCount(), m_outputImage->getChannelType());
+    std::tie(imageFormatFound, outputImageFormat) =  getMediapipeImageFormat(m_outputHandler.image->getChannelCount(), m_outputHandler.image->getChannelType());
     if (!imageFormatFound) {
         return ::mediapipe::UnknownError("unable to find compatible output image format");
     }
 
-    std::unique_ptr<ImageFrame> outputImage = absl::make_unique<ImageFrame>(
-            outputImageFormat, m_outputImage->getWidth(), m_outputImage->getHeight());
+    std::unique_ptr<ImageFrame> outputImage = absl::make_unique<ImageFrame>(outputImageFormat, m_outputHandler.image->getWidth(), m_outputHandler.image->getHeight());
 
     // copy staging buffer to output ImageFrame
-    {
-        // TODO: staging buffer can stay mapped
-        auto ptr = m_outputStagingBuffer->map<uint8_t[]>();
-        std::memcpy(outputImage->MutablePixelData(), &ptr[0], m_outputStagingBuffer->getSize());
-    }
+    std::memcpy(outputImage->MutablePixelData(), &m_outputHandler.stagingBufferMappedPtr[0], m_outputHandler.stagingBuffer->getSize());
 
     LOG_EVERY_N(INFO, 300) << "LluviaCalculator: shape [h:"
                             << std::to_string(outputImage->Height()) << ", w:" << std::to_string(outputImage->Width()) << "], format: "

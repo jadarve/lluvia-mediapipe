@@ -159,7 +159,6 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
         CalculatorRunner runner(node_config);
 
         Packet input_packet = MakePacket<ImageFrame>(imageFormat, 1920, 1080);
-        // input_mat.copyTo(formats::MatView(&(input_packet.Get<ImageFrame>())));
 
         runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));
 
@@ -170,6 +169,7 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
         ASSERT_TRUE(runner.Outputs().Tag("OUT_0").packets.size() >= 1);
 
         auto outPacket = runner.Outputs().Tag("OUT_0").packets[0];
+
         auto& out_image = outPacket.Get<ImageFrame>();
 
         ASSERT_EQ(out_image.Format(), imageFormat);
