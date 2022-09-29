@@ -101,9 +101,9 @@ private:
         m_session->scriptFile(m_options.script_path(i));
     }
 
-    // for (const auto& desc : m_session->getNodeBuilderDescriptors()) {
-    //     LOG(INFO) << "LLUVIA: " << desc.name;
-    // }
+    for (const auto& desc : m_session->getNodeBuilderDescriptors()) {
+        LOG(INFO) << "LLUVIA: " << desc.name;
+    }
 
     return ::mediapipe::OkStatus();
 }
