@@ -6,7 +6,7 @@ package(default_visibility = [
 
 
 cc_binary(
-    name = "hello_world",
+    name = "single_image",
     srcs = [
         "main.cc"
     ],
@@ -14,19 +14,9 @@ cc_binary(
         "//mediapipe/lluvia-mediapipe/calculators:lluvia_calculator",
         "//mediapipe/lluvia-mediapipe/calculators:lluvia_calculator_cc_proto",
 
-        # "//mediapipe/framework:calculator_framework",
-        # "//mediapipe/framework/port:parse_text_proto",
-        # "//mediapipe/framework/formats:image_frame",
-        # "//mediapipe/framework/formats:image_frame_opencv",
-        # "//mediapipe/framework/port:file_helpers",
-        # "//mediapipe/framework/port:opencv_highgui",
-        # "//mediapipe/framework/port:opencv_imgproc",
-        # "//mediapipe/framework/port:opencv_video",
-        # "//mediapipe/framework/port:status",
-
         "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
+        "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:opencv_highgui",
         "//mediapipe/framework/port:opencv_imgproc",
