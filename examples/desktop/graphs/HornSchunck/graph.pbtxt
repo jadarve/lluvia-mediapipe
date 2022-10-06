@@ -9,7 +9,7 @@ node: {
       [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
           enable_debug: true
 
-          container_node: "mediapipe/examples/HelloWorldContainerNode"
+          container_node: "mediapipe/examples/HornSchunck"
 
           library_path: "$0"
 

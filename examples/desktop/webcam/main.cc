@@ -20,18 +20,12 @@ using bazel::tools::cpp::runfiles::Runfiles;
 
 #include <iostream>
 
-ABSL_FLAG(std::string, input_image, "", "Path to the input image.");
 ABSL_FLAG(std::string, script_file, "", "Path to the LUA script describing the container node.");
 
 ABSL_FLAG(std::string, graph_file, "", "Name of file containing text format CalculatorGraphConfig proto.");
 
 
 absl::Status runGraph(const std::string mainFileLocation) {
-
-    auto input_image = absl::GetFlag(FLAGS_input_image);
-    if (input_image.empty()) {
-        return absl::InvalidArgumentError("input_image cannot be empty");
-    }
 
     auto script_file = absl::GetFlag(FLAGS_script_file);
     if (script_file.empty()) {
@@ -66,49 +60,71 @@ absl::Status runGraph(const std::string mainFileLocation) {
     ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller outputPoller, graph.AddOutputStreamPoller("output_stream"));
     MP_RETURN_IF_ERROR(graph.StartRun({}));
     
-
     ///////////////////////////////////////////////////////////////////////////
-    // Read input image
-    auto cvInputImage = cv::imread(input_image);
-    cv::cvtColor(cvInputImage, cvInputImage, cv::COLOR_BGR2BGRA);
+    // Open the video capture device
+    auto videoCapture = cv::VideoCapture {};
+    videoCapture.open(0, cv::CAP_ANY);
 
-    
-    ///////////////////////////////////////////////////////////////////////////
-    // Feed the graph
-    auto inputPacket = absl::make_unique<mediapipe::ImageFrame>(
-        mediapipe::ImageFormat::SBGRA, cvInputImage.cols, cvInputImage.rows,
-        mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
-    cv::Mat inputPacketMat = mediapipe::formats::MatView(inputPacket.get());
-    cvInputImage.copyTo(inputPacketMat);
-
-    MP_RETURN_IF_ERROR(
-        graph.AddPacketToInputStream("input_stream", 
-            mediapipe::Adopt(inputPacket.release()).At(mediapipe::Timestamp(0))
-        )
-    );
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Get the output
-    mediapipe::Packet outputPacket;
-
-    if (!outputPoller.Next(&outputPacket)) {
-        return absl::UnknownError("No package to poll");
+    if (!videoCapture.isOpened()) {
+        return absl::UnknownError("Error opening capture device.");
     }
 
-    auto& outputImageFrame = outputPacket.Get<mediapipe::ImageFrame>();
-    auto outputImageMat = mediapipe::formats::MatView(&outputImageFrame);
-    
-    auto cvOutputImage = cv::Mat {};
-    outputImageMat.copyTo(cvOutputImage);
+    auto cvInputImage = cv::Mat {};
+    auto cvInputImageBGRA = cv::Mat {};
 
-    // cv::cvtColor(cvOutputImage, cvOutputImage, cv::COLOR_RGBA2BGR);
+    auto timestampCounter = int64_t {0};
+    for (;;) {   
 
+        ///////////////////////////////////////////////////////////////////////////
+        // Read input image
+        videoCapture.read(cvInputImage);
 
-    ///////////////////////////////////////////////////////////////////////////
-    // Render
-    cv::imshow("input_image", cvInputImage);
-    cv::imshow("output_image", cvOutputImage);
-    cv::waitKey(0);
+        if (cvInputImage.empty()) {
+            return absl::UnknownError("Error reading image from capture device.");
+        }
+
+        cv::cvtColor(cvInputImage, cvInputImageBGRA, cv::COLOR_BGR2BGRA);
+
+        
+        ///////////////////////////////////////////////////////////////////////////
+        // Feed the graph
+        auto inputPacket = absl::make_unique<mediapipe::ImageFrame>(
+            mediapipe::ImageFormat::SBGRA, cvInputImageBGRA.cols, cvInputImageBGRA.rows,
+            mediapipe::ImageFrame::kGlDefaultAlignmentBoundary);
+        cv::Mat inputPacketMat = mediapipe::formats::MatView(inputPacket.get());
+        cvInputImageBGRA.copyTo(inputPacketMat);
+
+        MP_RETURN_IF_ERROR(
+            graph.AddPacketToInputStream("input_stream", 
+                mediapipe::Adopt(inputPacket.release()).At(mediapipe::Timestamp(timestampCounter++))
+            )
+        );
+
+        ///////////////////////////////////////////////////////////////////////////
+        // Get the output
+        mediapipe::Packet outputPacket;
+
+        if (!outputPoller.Next(&outputPacket)) {
+            // no package to poll in this loop iteration
+            return absl::UnknownError("Error polling output packet");
+        }
+
+        auto& outputImageFrame = outputPacket.Get<mediapipe::ImageFrame>();
+        auto outputImageMat = mediapipe::formats::MatView(&outputImageFrame);
+        
+        auto cvOutputImage = cv::Mat {};
+        outputImageMat.copyTo(cvOutputImage);
+
+        ///////////////////////////////////////////////////////////////////////////
+        // Render
+        cv::imshow("input_image", cvInputImage);
+        cv::imshow("output_image", cvOutputImage);
+        
+        if (cv::waitKey(40) >= 0) {
+            break;
+        }
+
+    }
 
     return absl::OkStatus();
 
@@ -120,7 +136,6 @@ int main(int argc, char** argv) {
     ///////////////////////////////////////////////////////////////////////////
     // Arg parsing
     absl::ParseCommandLine(argc, argv);
-    std::cout << "input_image: " << absl::GetFlag(FLAGS_input_image) << std::endl;
     std::cout << "script_file: " << absl::GetFlag(FLAGS_script_file) << std::endl;
 
     auto status = runGraph(std::string {argv[0]});

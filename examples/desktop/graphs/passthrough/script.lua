@@ -1,6 +1,6 @@
 local builder = ll.class(ll.ContainerNodeBuilder)
 
-builder.name = 'mediapipe/examples/HelloWorldContainerNode'
+builder.name = 'mediapipe/examples/Passthrough'
 builder.doc = [[
 A passthrough calculator copying the content of one image to the output.
 
@@ -16,11 +16,8 @@ function builder.newDescriptor()
     local in_image = ll.PortDescriptor.new(0, 'in_image', ll.PortDirection.In, ll.PortType.ImageView)
     desc:addPort(in_image)
 
-    local out_image = ll.PortDescriptor.new(0, 'out_image', ll.PortDirection.Out, ll.PortType.ImageView)
+    local out_image = ll.PortDescriptor.new(1, 'out_image', ll.PortDirection.Out, ll.PortType.ImageView)
     desc:addPort(out_image)
-
-    -- TODO: Parameters
-    -- desc:setParameter('levels', 1)
 
     return desc
 end
