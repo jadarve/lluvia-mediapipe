@@ -74,9 +74,22 @@ private:
 
     m_options = cc->Options<lluvia::LluviaCalculatorOptions>();
 
+    // try to find a DISCRETE_GPU device
+    auto availableDevices = ll::Session::getAvailableDevices();
+    auto selectedDevice = availableDevices[0];
+
+    for (const auto& desc : availableDevices) {
+        if (desc.deviceType == ll::DeviceType::DiscreteGPU) {
+            selectedDevice = desc;
+        }
+    }
+
+    LOG(INFO) << "LLUVIA: using device: " << selectedDevice.name;
+
     // TODO: options for creating the session
     // - device type
     auto sessionDescriptor = ll::SessionDescriptor()
+        .setDeviceDescriptor(selectedDevice)
         .enableDebug(m_options.enable_debug());
 
     m_session = ll::Session::create(sessionDescriptor);
@@ -204,7 +217,7 @@ private:
                                                 channelCount, channelType}
                 .setUsageFlags(imgUsageFlags);
 
-    m_inputHandler.image = m_hostMemory->createImage(imgDesc);
+    m_inputHandler.image = m_deviceMemory->createImage(imgDesc);
     m_inputHandler.imageView = m_inputHandler.image->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
                                                                                 ll::ImageFilterMode::Nearest,
                                                                                 false,
@@ -265,6 +278,9 @@ std::tuple<bool, ll::ChannelCount, ll::ChannelType> LluviaCalculator::getLluviaI
             return std::make_tuple(true, ll::ChannelCount::C3, ll::ChannelType::Uint8);
         
         case ImageFormat_Format_SRGBA:
+            return std::make_tuple(true, ll::ChannelCount::C4, ll::ChannelType::Uint8);
+        
+        case ImageFormat_Format_SBGRA:
             return std::make_tuple(true, ll::ChannelCount::C4, ll::ChannelType::Uint8);
         
         case ImageFormat_Format_GRAY8:
