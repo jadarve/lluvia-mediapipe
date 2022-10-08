@@ -39,7 +39,7 @@ function builder.onNodeInit(node)
 
     -- Horn and Schunck
     local HornSchunck = ll.createContainerNode('lluvia/opticalflow/HornSchunck/HornSchunck')
-    HornSchunck:setParameter('alpha', 0.05)
+    HornSchunck:setParameter('alpha', 0.03)
     HornSchunck:setParameter('iterations', 10)
     HornSchunck:setParameter('float_precision', ll.FloatPrecision.FP32)
     HornSchunck:bind('in_gray', out_gray)
@@ -51,7 +51,7 @@ function builder.onNodeInit(node)
 
     -- Flow to RGBA
     local Flow2RGBA = ll.createComputeNode('lluvia/viz/Flow2RGBA')
-    Flow2RGBA:setParameter('max_flow', 4.0)
+    Flow2RGBA:setParameter('max_flow', 8.0)
     Flow2RGBA:bind('in_flow', out_flow)
     Flow2RGBA:init()
     node:bindNode('Flow2RGBA', Flow2RGBA)
