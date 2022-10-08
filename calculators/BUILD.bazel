@@ -1,42 +1,97 @@
+load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+load("@lluvia//lluvia/bazel/node:def.bzl", "ll_node", "ll_node_library")
+
 package(default_visibility = ["//visibility:public"])
 
-cc_library(
-    name = "lluvia",
-    srcs = ["lluvia.cc"],
+mediapipe_proto_library(
+    name = "lluvia_calculator_proto",
+    srcs = ["lluvia_calculator.proto"],
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/framework:calculator_options_proto",
+        "//mediapipe/framework:calculator_proto",
+    ],
+)
+
+cc_library(
+    name = "lluvia_calculator",
+    srcs = ["lluvia_calculator.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":lluvia_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:status",
         "@lluvia//lluvia/cpp/core:core_cc_library",
     ] + select({
-        "//conditions:default": [],
+        "//conditions:default": [
+            "//mediapipe/util:resource_util",
+        ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",
-            "//mediapipe/util:resource_util",
         ],
     }),
     alwayslink = 1,
 )
 
-cc_library(
-    name = "lluvia_from_gpu_buffer",
-    srcs = ["lluvia_from_gpu_buffer.cc"],
+
+ll_node(
+    name = "LluviaCalculator_node",
+    builder = "LluviaCalculator.lua",
+    archivePath = "lluvia/mediapipe",
     visibility = ["//visibility:public"],
-    deps = [
-        "//mediapipe/gpu:gl_calculator_helper",
-        "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework:timestamp",
-        "//mediapipe/framework/formats:image_frame",
-        "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
-        "@lluvia//lluvia/cpp/core:core_cc_library",
-    ] + select({
-        "//conditions:default": [],
-        "//mediapipe:apple": ["//mediapipe/objc:util"],
-        "//mediapipe:android": [
-            "//mediapipe/util/android:asset_manager_util",
-            "//mediapipe/util:resource_util",
-        ],
-    }),
-    alwayslink = 1,
 )
+
+ll_node_library(
+    name = "lluvia_mediapipe_library",
+    nodes = [
+        ":LluviaCalculator_node"
+    ],
+    visibility = ["//visibility:public"]
+)
+
+
+cc_test(
+    name = "lluvia_calculator_test",
+    srcs = ["lluvia_calculator_test.cc"],
+    deps = [
+        ":lluvia_calculator",
+        ":lluvia_calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/port:gtest_main",
+        "@bazel_tools//tools/cpp/runfiles:runfiles",
+    ],
+    data = [
+        "//mediapipe/lluvia-mediapipe/calculators/test_data:test_data",
+        "@lluvia//lluvia/nodes:lluvia_node_library",
+        ":lluvia_mediapipe_library"
+    ]
+)
+
+
+# cc_library(
+#     name = "lluvia_from_gpu_buffer",
+#     srcs = ["lluvia_from_gpu_buffer.cc"],
+#     visibility = ["//visibility:public"],
+#     deps = [
+#         "//mediapipe/gpu:gl_calculator_helper",
+#         "//mediapipe/framework:calculator_framework",
+#         "//mediapipe/framework:timestamp",
+#         "//mediapipe/framework/formats:image_frame",
+#         "//mediapipe/framework/port:ret_check",
+#         "//mediapipe/framework/port:status",
+#         "@lluvia//lluvia/cpp/core:core_cc_library",
+#     ] + select({
+#         "//conditions:default": [
+#             "//mediapipe/util:resource_util",
+#         ],
+#         "//mediapipe:apple": [
+#             "//mediapipe/objc:util"
+#         ],
+#         "//mediapipe:android": [
+#             "//mediapipe/util/android:asset_manager_util",
+#         ],
+#     }),
+#     alwayslink = 1,
+# )

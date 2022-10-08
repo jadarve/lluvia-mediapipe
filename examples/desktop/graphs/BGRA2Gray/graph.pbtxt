@@ -1,0 +1,24 @@
+input_stream: "input_stream"
+output_stream: "output_stream"
+
+node: {
+  calculator: "LluviaCalculator"
+  input_stream: "IN_0:input_stream"
+  output_stream: "OUT_0:output_stream"
+  node_options {
+      [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+          enable_debug: true
+
+          container_node: "mediapipe/examples/BGRA2Gray"
+
+          library_path: "$0"
+
+          script_path: "$1"
+
+          input_port_binding:  {
+              mediapipe_tag: "IN_0"
+              lluvia_port: "in_image"
+          }
+      }
+  }
+}
