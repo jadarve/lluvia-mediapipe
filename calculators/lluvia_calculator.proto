@@ -18,6 +18,11 @@ package lluvia;
 
 import "mediapipe/framework/calculator.proto";
 
+enum MediapipePacketType {
+  IMAGE_FRAME = 0;
+  GPU_BUFFER = 1;
+}
+
 message LluviaCalculatorOptions {
   extend mediapipe.CalculatorOptions {
     optional LluviaCalculatorOptions ext = 227563647;
@@ -44,4 +49,5 @@ message PortBinding {
 
   required string mediapipe_tag = 1;
   required string lluvia_port = 2;
+  required MediapipePacketType packet_type = 3;
 }

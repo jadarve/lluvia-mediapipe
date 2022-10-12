@@ -3,6 +3,13 @@
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/resource_util.h"
 
+#define HAVE_GPU_BUFFER
+#ifdef __APPLE__
+#include "mediapipe/objc/util.h"
+#endif
+
+#include "mediapipe/gpu/gl_calculator_helper.h"
+
 #include <lluvia/core.h>
 
 #include "mediapipe/lluvia-mediapipe/calculators/lluvia_calculator.pb.h"
@@ -14,10 +21,26 @@ namespace mediapipe {
 
 
 struct PortHandler {
+    // the staging buffer used to transfer data from ImageFrame or GPUBuffer to Lluvia/Vulkan memory space
     std::shared_ptr<ll::Buffer> stagingBuffer;
+    
+    // the pointer to the staging buffer mapped to the host memory space.
     std::unique_ptr<uint8_t [], ll::Buffer::BufferMapDeleter> stagingBufferMappedPtr;
+
+    // the image in device memory
     std::shared_ptr<ll::Image> image;
+
+    // the image vide to feed to the container node
     std::shared_ptr<ll::ImageView> imageView;
+
+    // port name in the Lluvia's container node
+    std::string lluviaPortName;
+
+    // mediapipe tag used to bind port
+    std::string mediapipeTag;
+
+    // type of mediapipe packet expected to be received in this port.
+    lluvia::MediapipePacketType mediapipePacketType;
 };
 
 // Calculator to pass a CPU image through. It prints in the logs the
@@ -32,8 +55,8 @@ public:
     
 
 private:
-    ::mediapipe::Status InitNode(const ImageFrame*);
-    ::mediapipe::Status InitInputImage(const ImageFrame*);
+    ::mediapipe::Status InitNode(CalculatorContext* cc);
+    ::mediapipe::Status InitImageFramePort(const ImageFrame*, PortHandler& portHandler);
 
     std::tuple<bool, ll::ChannelCount, ll::ChannelType> getLluviaImageFormat(const mediapipe::ImageFormat_Format format);
     std::tuple<bool, mediapipe::ImageFormat_Format> getMediapipeImageFormat(const ll::ChannelCount channelCount, const ll::ChannelType channelType);
@@ -50,8 +73,10 @@ private:
     std::shared_ptr<ll::ContainerNode> m_containerNode {};
 
     // TODO: support more than one input and output
-    mediapipe::PortHandler m_inputHandler;
     mediapipe::PortHandler m_outputHandler;
+
+    std::vector<mediapipe::PortHandler> m_inputHandlers;
+    std::vector<mediapipe::PortHandler> m_outputHandlers;
 
     std::once_flag m_configureNode {};
 };
@@ -60,11 +85,14 @@ private:
 
     LOG(INFO) << "LLUVIA: GetContract()";
 
-    // FIXME: try to support GPUBuffer instead. Use AnyOf
-    // cc->Inputs().Index(0).Set<ImageFrame>();
-    cc->Inputs().Tag("IN_0").Set<ImageFrame>();
+    for (const auto& tag : cc->Inputs().GetTags()) {
+        cc->Inputs().Tag(tag).SetOneOf<ImageFrame, GpuBuffer>();
+    }
 
-    cc->Outputs().Tag("OUT_0").Set<ImageFrame>();
+    for (const auto& tag : cc->Outputs().GetTags()) {
+        cc->Outputs().Tag(tag).SetOneOf<ImageFrame, GpuBuffer>();
+    }
+
     return ::mediapipe::OkStatus();
 }
 
@@ -121,26 +149,45 @@ private:
     return ::mediapipe::OkStatus();
 }
 
-::mediapipe::Status LluviaCalculator::InitNode(const ImageFrame* inputImage) {
+::mediapipe::Status LluviaCalculator::InitNode(CalculatorContext* cc) {
 
     LOG(INFO) << "LLUVIA: InitNode() start";
 
-    const auto width = inputImage->Width();
-    const auto height = inputImage->Height();
-
-    const auto initImageStatus = InitInputImage(inputImage);
-    if (initImageStatus != ::mediapipe::OkStatus()) {
-        return initImageStatus;
-    }
-
-    // LOG(INFO) << "LLUVIA: InitNode() width: " << width << " height: " << height;
-
+    ///////////////////////////////////////////////////////////////////////////
+    // Container node
     m_containerNode = m_session->createContainerNode(m_options.container_node());
 
     ///////////////////////////////////////////////////////////////////////////
-    // Port bindings
-    // FIXME: Use input_port_bindings
-    m_containerNode->bind("in_image", m_inputHandler.imageView);
+    // Input bindings
+    for (auto i = 0; i < m_options.input_port_binding_size(); ++i) {
+        
+        const auto& portBinding = m_options.input_port_binding(i);
+
+        // initialize the port handler for this input with the protobuffer options
+        auto portHandler = PortHandler {};
+        portHandler.mediapipePacketType = portBinding.packet_type();
+        portHandler.mediapipeTag = portBinding.mediapipe_tag();
+        portHandler.lluviaPortName = portBinding.lluvia_port();
+
+        // configure this port as receiving an ImageFrame
+        if (portBinding.packet_type() == lluvia::IMAGE_FRAME) {
+
+            auto& inputImage = cc->Inputs().Tag(portBinding.mediapipe_tag()).Get<ImageFrame>();
+            
+            const auto initImageStatus = InitImageFramePort(&inputImage, portHandler);
+            if (initImageStatus != ::mediapipe::OkStatus()) {
+                return initImageStatus;
+            }
+            
+            // bind to the container node
+            m_containerNode->bind(portHandler.lluviaPortName, portHandler.imageView);
+
+            // finally, add the handler to the list of input handlers
+            m_inputHandlers.push_back(std::move(portHandler));
+        }
+
+        // TODO: support lluvia::GPU_BUFFER
+    }
 
     ///////////////////////////////////////////////////////////////////////////
     // Parameters
@@ -162,14 +209,16 @@ private:
     m_cmdBuffer = m_session->createCommandBuffer();
     m_cmdBuffer->begin();
 
-    // Copy staging buffer to m_inputImage. Consider changing image layout.
-    m_cmdBuffer->changeImageLayout(*m_inputHandler.image, ll::ImageLayout::TransferDstOptimal);
-    m_cmdBuffer->memoryBarrier();
-    m_cmdBuffer->copyBufferToImage(*m_inputHandler.stagingBuffer, *m_inputHandler.image);
-    m_cmdBuffer->memoryBarrier(); // TODO: needed?
-    m_cmdBuffer->changeImageLayout(*m_inputHandler.image, ll::ImageLayout::General);
-    m_cmdBuffer->memoryBarrier();
-
+    // Copy all staging buffers to their corresponding port handler image.
+    for (auto& inputHandler : m_inputHandlers) {
+        m_cmdBuffer->changeImageLayout(*inputHandler.image, ll::ImageLayout::TransferDstOptimal);
+        m_cmdBuffer->memoryBarrier();
+        m_cmdBuffer->copyBufferToImage(*inputHandler.stagingBuffer, *inputHandler.image);
+        m_cmdBuffer->memoryBarrier(); // TODO: needed?
+        m_cmdBuffer->changeImageLayout(*inputHandler.image, ll::ImageLayout::General);
+        m_cmdBuffer->memoryBarrier();
+    }
+    
     // Compute
     m_cmdBuffer->run(*m_containerNode);
     m_cmdBuffer->memoryBarrier();
@@ -189,14 +238,14 @@ private:
     return ::mediapipe::OkStatus();
 }
 
-::mediapipe::Status LluviaCalculator::InitInputImage(const ImageFrame* inputImage) {
+::mediapipe::Status LluviaCalculator::InitImageFramePort(const ImageFrame* inputImage, PortHandler& portHandler) {
 
     const auto width = inputImage->Width();
     const auto height = inputImage->Height();
 
     // TODO: usage flags
-    m_inputHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
-    m_inputHandler.stagingBufferMappedPtr = m_inputHandler.stagingBuffer->map<uint8_t []>();
+    portHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSize()));
+    portHandler.stagingBufferMappedPtr = portHandler.stagingBuffer->map<uint8_t []>();
 
     const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
                                                 | ll::ImageUsageFlagBits::Sampled
@@ -217,31 +266,40 @@ private:
                                                 channelCount, channelType}
                 .setUsageFlags(imgUsageFlags);
 
-    m_inputHandler.image = m_deviceMemory->createImage(imgDesc);
-    m_inputHandler.imageView = m_inputHandler.image->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
+    portHandler.image = m_deviceMemory->createImage(imgDesc);
+    portHandler.imageView = portHandler.image->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
                                                                                 ll::ImageFilterMode::Nearest,
                                                                                 false,
                                                                                 false});
 
 
-    m_inputHandler.image->changeImageLayout(ll::ImageLayout::General);
+    portHandler.image->changeImageLayout(ll::ImageLayout::General);
 
     return ::mediapipe::OkStatus();
 }
 
 ::mediapipe::Status LluviaCalculator::Process(CalculatorContext* cc) {
 
+    ///////////////////////////////////////////////////////////////////////////
+    // init the internals on the first call to Process
+    std::call_once(m_configureNode, &LluviaCalculator::InitNode, this, cc);
 
-    auto& inputImage = cc->Inputs().Tag("IN_0").Get<ImageFrame>();
+    ///////////////////////////////////////////////////////////////////////////
+    // copy input packets to input handlers
+    for (auto& inputHandler : m_inputHandlers) {
 
-    // init the internals given a concrete ImageFrame
-    std::call_once(m_configureNode, &LluviaCalculator::InitNode, this, &inputImage);
+        if (inputHandler.mediapipePacketType == lluvia::IMAGE_FRAME) {
+            auto& inputImage = cc->Inputs().Tag(inputHandler.mediapipeTag).Get<ImageFrame>();
+            inputImage.CopyToBuffer(&inputHandler.stagingBufferMappedPtr[0], inputHandler.stagingBuffer->getSize());
+        }
+    }
 
-    // Copy input image to a staging buffer
-    inputImage.CopyToBuffer(&m_inputHandler.stagingBufferMappedPtr[0], m_inputHandler.stagingBuffer->getSize());
-
+    ///////////////////////////////////////////////////////////////////////////
+    // run the container node
     m_session->run(*m_cmdBuffer);
 
+    ///////////////////////////////////////////////////////////////////////////
+    // produce output packets
     ::mediapipe::ImageFormat_Format outputImageFormat = ::mediapipe::ImageFormat_Format_UNKNOWN;
     bool imageFormatFound = false;
 

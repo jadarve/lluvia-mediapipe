@@ -83,6 +83,7 @@ TEST(LluviaCalculatorTest, TestMoni) {
                             input_port_binding:  {
                                 mediapipe_tag: "IN_0"
                                 lluvia_port: "in_image"
+                                packet_type: IMAGE_FRAME
                             }
                         }
                     }
@@ -141,6 +142,7 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
                             input_port_binding:  {
                                 mediapipe_tag: "IN_0"
                                 lluvia_port: "in_image"
+                                packet_type: IMAGE_FRAME
                             }
                         }
                     }
