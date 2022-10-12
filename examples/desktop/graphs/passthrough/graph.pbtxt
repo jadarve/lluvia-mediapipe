@@ -20,6 +20,12 @@ node: {
               lluvia_port: "in_image"
               packet_type: IMAGE_FRAME
           }
+
+          output_port_binding:  {
+              mediapipe_tag: "OUT_0"
+              lluvia_port: "out_image"
+              packet_type: IMAGE_FRAME
+          }
       }
   }
 }
