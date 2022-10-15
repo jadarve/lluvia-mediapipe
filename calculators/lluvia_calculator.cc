@@ -135,7 +135,7 @@ private:
 
     // execute all the scripts in the session
     for (auto i = 0; i < m_options.script_path_size(); ++i) {
-        // LOG(INFO) << "LLUVIA: script path: " << m_options.script_path(i);
+        LOG(INFO) << "LLUVIA: script path: " << m_options.script_path(i);
         m_session->scriptFile(m_options.script_path(i));
     }
 

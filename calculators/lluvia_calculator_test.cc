@@ -52,7 +52,7 @@ TEST(LluviaCalculatorTest, TestLoadNodeLibrary) {
 
 }
 
-TEST(LluviaCalculatorTest, TestMoni) {
+TEST(LluviaCalculatorTest, TestRunCalculator) {
 
     auto runfiles = Runfiles::CreateForTest(nullptr);
     ASSERT_NE(nullptr, runfiles);
@@ -101,13 +101,7 @@ TEST(LluviaCalculatorTest, TestMoni) {
     
     CalculatorRunner runner(node_config);
 
-    // cv::Mat input_mat;
-    // cv::cvtColor(cv::imread(file::JoinPath("./",
-    //                                         "/mediapipe/calculators/"
-    //                                         "image/testdata/dino.jpg")),
-    //             input_mat, cv::COLOR_BGR2RGB);
     Packet input_packet = MakePacket<ImageFrame>(ImageFormat::SRGBA, 1920, 1080);
-    // input_mat.copyTo(formats::MatView(&(input_packet.Get<ImageFrame>())));
 
     runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));
 
@@ -133,8 +127,8 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
             absl::Substitute(
                 R"pb(
                     calculator: "LluviaCalculator"
-                    input_stream: "IN_0:input_image"
-                    output_stream: "OUT_0:output_image"
+                    input_stream: "IN_0:input_image_0"
+                    output_stream: "OUT_0:output_image_0"
                     node_options {
                         [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
                             enable_debug: true
@@ -147,13 +141,13 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
 
                             input_port_binding:  {
                                 mediapipe_tag: "IN_0"
-                                lluvia_port: "in_image"
+                                lluvia_port: "in_image_0"
                                 packet_type: IMAGE_FRAME
                             }
 
                             output_port_binding:  {
                                 mediapipe_tag: "OUT_0"
-                                lluvia_port: "out_image"
+                                lluvia_port: "out_image_0"
                                 packet_type: IMAGE_FRAME
                             }
                         }
@@ -190,8 +184,98 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
         ASSERT_EQ(out_image.Width(), 1920);
         ASSERT_EQ(out_image.Height(), 1080);
     }
+}
+
+TEST(LluviaCalculatorTest, TestMultipleInputs) {
+
+    auto runfiles = Runfiles::CreateForTest(nullptr);
+    ASSERT_NE(nullptr, runfiles);
+
+    auto libraryPath = runfiles->Rlocation("lluvia/lluvia/nodes/lluvia_node_library.zip");
+    auto calculatorScriptPath = runfiles->Rlocation("mediapipe/mediapipe/lluvia-mediapipe/calculators/test_data/PassthroughContainerNode.lua");
     
+    LOG(INFO) << "LLUVIA_TEST: library path: " << libraryPath;
+    LOG(INFO) << "LLUVIA_TEST: script path: " << calculatorScriptPath;
+
+
+    CalculatorGraphConfig::Node node_config =
+        ParseTextProtoOrDie<CalculatorGraphConfig::Node>(
+            absl::Substitute(
+                R"pb(
+                    calculator: "LluviaCalculator"
+                    input_stream: "IN_0:input_image_0"
+                    input_stream: "IN_1:input_image_1"
+                    output_stream: "OUT_0:output_image_0"
+                    output_stream: "OUT_1:output_image_1"
+                    node_options {
+                        [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+                            enable_debug: true
+
+                            container_node: "mediapipe/test/PassthroughContainerNode"
+
+                            library_path: "$0"
+
+                            script_path: "$1"
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_0"
+                                lluvia_port: "in_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_1"
+                                lluvia_port: "in_image_1"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_1"
+                                lluvia_port: "out_image_1"
+                                packet_type: IMAGE_FRAME
+                            }
+                        }
+                    }
+                )pb",
+                libraryPath,
+                calculatorScriptPath
+            )
+        );
     
+    CalculatorRunner runner(node_config);
+
+    auto inputPacket0 = MakePacket<ImageFrame>(ImageFormat::SRGBA, 1920, 1080);
+    auto inputPacket1 = MakePacket<ImageFrame>(ImageFormat::GRAY8, 720, 480);
+
+
+    runner.MutableInputs()->Tag("IN_0").packets.push_back(inputPacket0.At(Timestamp(0)));
+    runner.MutableInputs()->Tag("IN_1").packets.push_back(inputPacket1.At(Timestamp(0)));
+
+    MP_ASSERT_OK(runner.Run());
+
+    LOG(INFO) << "packet size: " << runner.Outputs().Tag("OUT_0").packets.size();
+
+    ASSERT_TRUE(runner.Outputs().Tag("OUT_0").packets.size() >= 1);
+    ASSERT_TRUE(runner.Outputs().Tag("OUT_1").packets.size() >= 1);
+
+    auto outPacket0 = runner.Outputs().Tag("OUT_0").packets[0];
+    auto outPacket1 = runner.Outputs().Tag("OUT_1").packets[0];
+
+    auto& outImage0 = outPacket0.Get<ImageFrame>();
+    ASSERT_EQ(outImage0.Format(), ImageFormat::SRGBA);
+    ASSERT_EQ(outImage0.Width(), 1920);
+    ASSERT_EQ(outImage0.Height(), 1080);
+
+    auto& outImage1 = outPacket1.Get<ImageFrame>();
+    ASSERT_EQ(outImage1.Format(), ImageFormat::GRAY8);
+    ASSERT_EQ(outImage1.Width(), 720);
+    ASSERT_EQ(outImage1.Height(), 480);
 }
 
 
