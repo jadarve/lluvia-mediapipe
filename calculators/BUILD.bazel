@@ -22,10 +22,11 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:status",
         "//mediapipe/gpu:gl_calculator_helper",
+        "//mediapipe/util:resource_util",
         "@lluvia//lluvia/cpp/core:core_cc_library",
     ] + select({
         "//conditions:default": [
-            "//mediapipe/util:resource_util",
+            
         ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",

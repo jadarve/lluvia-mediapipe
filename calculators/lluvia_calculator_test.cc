@@ -278,6 +278,81 @@ TEST(LluviaCalculatorTest, TestMultipleInputs) {
     ASSERT_EQ(outImage1.Height(), 480);
 }
 
+TEST(LluviaCalculatorTest, TestInputGPUBuffer) {
+
+    auto runfiles = Runfiles::CreateForTest(nullptr);
+    ASSERT_NE(nullptr, runfiles);
+
+    auto libraryPath = runfiles->Rlocation("lluvia/lluvia/nodes/lluvia_node_library.zip");
+    auto calculatorScriptPath = runfiles->Rlocation("mediapipe/mediapipe/lluvia-mediapipe/calculators/test_data/PassthroughContainerNode.lua");
+    
+    LOG(INFO) << "LLUVIA_TEST: library path: " << libraryPath;
+    LOG(INFO) << "LLUVIA_TEST: script path: " << calculatorScriptPath;
+
+
+    CalculatorGraphConfig::Node node_config =
+        ParseTextProtoOrDie<CalculatorGraphConfig::Node>(
+            absl::Substitute(
+                R"pb(
+                    calculator: "LluviaCalculator"
+                    input_stream: "IN_0:input_image_0"
+                    output_stream: "OUT_0:output_image_0"
+                    node_options {
+                        [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+                            enable_debug: true
+
+                            container_node: "mediapipe/test/PassthroughContainerNode"
+
+                            library_path: "$0"
+
+                            script_path: "$1"
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_0"
+                                lluvia_port: "in_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+                        }
+                    }
+                )pb",
+                libraryPath,
+                calculatorScriptPath
+            )
+        );
+    
+    // FIXME: only these formats work, all others complain about ByteDepth different to 1 image_frame.cc:379
+    const auto imageFormats = std::array {ImageFormat::SRGBA, ImageFormat::GRAY8};
+
+    
+    for (const auto& imageFormat : imageFormats) {
+
+        CalculatorRunner runner(node_config);
+
+        Packet input_packet = MakePacket<ImageFrame>(imageFormat, 1920, 1080);
+
+        runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));
+
+        MP_ASSERT_OK(runner.Run());
+
+        LOG(INFO) << "packet size: " << runner.Outputs().Tag("OUT_0").packets.size();
+
+        ASSERT_TRUE(runner.Outputs().Tag("OUT_0").packets.size() >= 1);
+
+        auto outPacket = runner.Outputs().Tag("OUT_0").packets[0];
+
+        auto& out_image = outPacket.Get<ImageFrame>();
+
+        ASSERT_EQ(out_image.Format(), imageFormat);
+        ASSERT_EQ(out_image.Width(), 1920);
+        ASSERT_EQ(out_image.Height(), 1080);
+    }
+}
 
 } // namespace
 } // namespace mediapipe
