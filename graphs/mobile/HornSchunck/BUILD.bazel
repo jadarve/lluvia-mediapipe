@@ -1,0 +1,32 @@
+load(
+    "//mediapipe/framework/tool:mediapipe_graph.bzl",
+    "mediapipe_binary_graph",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "calculators",
+    deps = [
+        "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+        "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+        "//mediapipe/lluvia-mediapipe/calculators:lluvia_calculator",
+    ]
+)
+
+mediapipe_binary_graph(
+    name = "binary_graph",
+    graph = "horn_schunck.pbtxt",
+    output_name = "horn_schunck.binarypb",
+    deps = [
+        ":calculators",
+        "//mediapipe/lluvia-mediapipe/calculators:lluvia_calculator",
+    ],
+)
+
+filegroup (
+    name = "runfiles",
+    srcs = [
+        "horn_schunck.lua"
+    ]
+)
