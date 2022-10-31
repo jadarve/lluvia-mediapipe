@@ -40,7 +40,7 @@ function builder.onNodeInit(node)
     -- Horn and Schunck
     local HornSchunck = ll.createContainerNode('lluvia/opticalflow/HornSchunck/HornSchunck')
     HornSchunck:setParameter('alpha', 0.03)
-    HornSchunck:setParameter('iterations', 10)
+    HornSchunck:setParameter('iterations', 20)
     HornSchunck:setParameter('float_precision', ll.FloatPrecision.FP32)
     HornSchunck:bind('in_gray', out_gray)
 

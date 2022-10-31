@@ -1,12 +1,12 @@
 
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
-#include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/formats/image_frame.h"
-
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
+#include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/status_matchers.h"
+#include "mediapipe/gpu/gl_calculator_helper.h"
 
 #include "tools/cpp/runfiles/runfiles.h"
 using bazel::tools::cpp::runfiles::Runfiles;
@@ -328,12 +328,33 @@ TEST(LluviaCalculatorTest, TestInputGPUBuffer) {
     
     // FIXME: only these formats work, all others complain about ByteDepth different to 1 image_frame.cc:379
     const auto imageFormats = std::array {ImageFormat::SRGBA, ImageFormat::GRAY8};
-
     
     for (const auto& imageFormat : imageFormats) {
 
         CalculatorRunner runner(node_config);
 
+        ///////////////////////////////////////////////////////////////////////
+        // GlCalculatorHelper glHelper;
+        // glHelper.Open();
+        // helper_.RunInGlContext([this, &cc]() {
+
+        //     std::unique_ptr<ImageFrame> outputImage = absl::make_unique<ImageFrame>(
+        //             ImageFormat::GRAY8,
+        //             this->m_outputImage->getWidth(),
+        //             this->m_outputImage->getHeight(),
+        //             this->m_outputImage->getSize() / this->m_outputImage->getHeight(),
+        //             &(this->m_outputStagingBufferMapped[0]),
+        //             NopDeleter{}
+        //             );
+
+        //     auto src = this->helper_.CreateSourceTexture(*outputImage);
+        //     auto output = src.GetFrame<GpuBuffer>();
+        //     glFlush();
+        // });
+
+        ///////////////////////////////////////////////////////////////////////
+
+        // TOOD: make a GpuBuffer
         Packet input_packet = MakePacket<ImageFrame>(imageFormat, 1920, 1080);
 
         runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));

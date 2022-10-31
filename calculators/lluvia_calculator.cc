@@ -60,7 +60,7 @@ private:
     std::tuple<bool, mediapipe::ImageFormat_Format> getMediapipeImageFormat(const ll::ChannelCount channelCount, const ll::ChannelType channelType);
 
     ::mediapipe::Status InitInputPortAsImageFrame(const lluvia::PortBinding& portBinding, CalculatorContext* cc);
-    ::mediapipe::Status InitInputPortAsGPUBuffer(const lluvia::PortBinding& portBinding, CalculatorContext* cc);
+    ::mediapipe::Status InitInputPortAsGpuBuffer(const lluvia::PortBinding& portBinding, CalculatorContext* cc);
 
     lluvia::LluviaCalculatorOptions m_options;
 
@@ -69,6 +69,7 @@ private:
     std::shared_ptr<ll::Memory> m_deviceMemory {};
 
     std::unique_ptr<ll::CommandBuffer> m_cmdBuffer {};
+    std::unique_ptr<ll::Duration> m_duration {};
 
     // the container node
     std::shared_ptr<ll::ContainerNode> m_containerNode {};
@@ -218,7 +219,7 @@ private:
             InitInputPortAsImageFrame(portBinding, cc);
         }
         else if (portBinding.packet_type() == lluvia::GPU_BUFFER) {
-            InitInputPortAsImageFrame(portBinding, cc);
+            InitInputPortAsGpuBuffer(portBinding, cc);
         }
         else {
             return absl::UnknownError("Unknown port type");
@@ -265,10 +266,15 @@ private:
     }
 
     ///////////////////////////////////////////////////////////////////////////
+    // Duration
+    m_duration = m_session->createDuration();
+
+    ///////////////////////////////////////////////////////////////////////////
     // Command buffer
     LOG(INFO) << "InitNode(): creating command buffer";
     m_cmdBuffer = m_session->createCommandBuffer();
     m_cmdBuffer->begin();
+    m_cmdBuffer->durationStart(*m_duration);
 
     // Copy all staging buffers to their corresponding port handler image.
     for (auto& inputHandler : m_inputHandlers) {
@@ -295,6 +301,8 @@ private:
         m_cmdBuffer->memoryBarrier();
     }
 
+    
+    m_cmdBuffer->durationEnd(*m_duration);
     m_cmdBuffer->end();
 
     LOG(INFO) << "InitNode() finish";
@@ -321,6 +329,9 @@ private:
     ///////////////////////////////////////////////////////////////////////////
     // run the container node
     m_session->run(*m_cmdBuffer);
+
+    auto ns = m_duration->getDuration();
+    LOG(INFO) << "elapsed time: " << static_cast<float>(ns.count()) / 1e6 << " ms";
 
     ///////////////////////////////////////////////////////////////////////////
     // produce output packets
@@ -452,7 +463,7 @@ std::tuple<bool, mediapipe::ImageFormat_Format> LluviaCalculator::getMediapipeIm
     const auto height = inputImage.Height();
 
     // TODO: usage flags
-    portHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage.PixelDataSize()));
+    portHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage.PixelDataSizeStoredContiguously()));
     portHandler.stagingBufferMappedPtr = portHandler.stagingBuffer->map<uint8_t []>();
 
     const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
@@ -491,9 +502,63 @@ std::tuple<bool, mediapipe::ImageFormat_Format> LluviaCalculator::getMediapipeIm
     return ::mediapipe::OkStatus();
 }
 
-::mediapipe::Status LluviaCalculator::InitInputPortAsGPUBuffer(const lluvia::PortBinding& portBinding, CalculatorContext* cc) {
+::mediapipe::Status LluviaCalculator::InitInputPortAsGpuBuffer(const lluvia::PortBinding& portBinding, CalculatorContext* cc) {
 
-    return absl::UnknownError("Not implemented");
+    // initialize the port handler for with the protobuffer attributes
+    auto portHandler = PortHandler {};
+    portHandler.mediapipePacketType = portBinding.packet_type();
+    portHandler.mediapipeTag = portBinding.mediapipe_tag();
+    portHandler.lluviaPortName = portBinding.lluvia_port();
+
+    auto& gpuBuffer = cc->Inputs().Tag(portBinding.mediapipe_tag()).Get<GpuBuffer>();
+
+    // Create a read view to get all attributes of the gpu buffer through an ImageFrame.
+    // TODO: Need to check whether nputImage->PixelDataSize() is equal to this other method
+    //       std::unique_ptr<ImageFrame> inputFrame = absl::make_unique<ImageFrame>(
+    //                 ImageFormatForGpuBufferFormat(inputImage->format()), width,
+    //                 height, ImageFrame::kGlDefaultAlignmentBoundary);
+    auto inputImage = gpuBuffer.GetReadView<ImageFrame>();
+    const auto width = inputImage->Width();
+    const auto height = inputImage->Height();
+
+    // TODO: usage flags
+    portHandler.stagingBuffer = m_hostMemory->createBuffer(static_cast<uint64_t>(inputImage->PixelDataSizeStoredContiguously()));
+    portHandler.stagingBufferMappedPtr = portHandler.stagingBuffer->map<uint8_t []>();
+
+    const ll::ImageUsageFlags imgUsageFlags = { ll::ImageUsageFlagBits::Storage
+                                                | ll::ImageUsageFlagBits::Sampled
+                                                | ll::ImageUsageFlagBits::TransferDst
+                                                | ll::ImageUsageFlagBits::TransferSrc};
+
+    auto imageFormatSupported = false;
+    auto channelCount = ll::ChannelCount::C1;
+    auto channelType = ll::ChannelType::Uint8;
+
+    std::tie(imageFormatSupported, channelCount, channelType) = getLluviaImageFormat(inputImage->Format());
+
+    if (!imageFormatSupported) {
+        return ::mediapipe::UnknownError("image format not supported");
+    }
+
+    const auto imgDesc = ll::ImageDescriptor{1, static_cast<uint32_t >(height), static_cast<uint32_t>(width),
+                                                channelCount, channelType}
+                .setUsageFlags(imgUsageFlags);
+
+    portHandler.image = m_deviceMemory->createImage(imgDesc);
+    portHandler.imageView = portHandler.image->createImageView(ll::ImageViewDescriptor{ll::ImageAddressMode::ClampToBorder,
+                                                                                ll::ImageFilterMode::Nearest,
+                                                                                false,
+                                                                                false});
+
+    portHandler.image->changeImageLayout(ll::ImageLayout::General);
+
+    // bind to the container node
+    m_containerNode->bind(portHandler.lluviaPortName, portHandler.imageView);
+
+    // finally, add the handler to the list of input handlers
+    m_inputHandlers.push_back(std::move(portHandler));
+
+    return ::mediapipe::OkStatus();
 }
 
 REGISTER_CALCULATOR(LluviaCalculator);

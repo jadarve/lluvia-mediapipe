@@ -2,9 +2,16 @@
 input_stream: "input_stream"
 output_stream: "output_stream"
 
+max_queue_size: 1
+
+executor: {
+  name: ""
+  type: "ApplicationThreadExecutor"
+}
+
 node: {
   calculator: "GpuBufferToImageFrameCalculator"
-  input_stream: "input_stream"
+  input_stream: "sampled_images"
   output_stream: "input_stream_cpu"
 }
 
@@ -42,3 +49,13 @@ node: {
   output_stream: "output_stream"
 }
 
+node {
+  calculator: "FlowLimiterCalculator"
+  input_stream: "input_stream"
+  input_stream: "FINISHED:output_stream"
+  input_stream_info: {
+    tag_index: "FINISHED"
+    back_edge: true
+  }
+  output_stream: "sampled_images"
+}
