@@ -1,0 +1,61 @@
+# Images on GPU coming into and out of the graph.
+input_stream: "input_stream"
+output_stream: "output_stream"
+
+max_queue_size: 1
+
+executor: {
+  name: ""
+  type: "ApplicationThreadExecutor"
+}
+
+node: {
+  calculator: "GpuBufferToImageFrameCalculator"
+  input_stream: "sampled_images"
+  output_stream: "input_stream_cpu"
+}
+
+node: {
+  calculator: "LluviaCalculator"
+  input_stream: "IN_0:input_stream_cpu"
+  output_stream: "OUT_0:output_stream_cpu"
+  node_options {
+      [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+          enable_debug: false
+          container_node: "mediapipe/examples/FlowFilter"
+          library_path: "lluvia_node_library.zip"
+          script_path: "flowfilter.lua"
+
+          input_port_binding:  {
+              mediapipe_tag: "IN_0"
+              lluvia_port: "in_image"
+              packet_type: IMAGE_FRAME
+          }
+
+          output_port_binding:  {
+              mediapipe_tag: "OUT_0"
+              lluvia_port: "out_image"
+              packet_type: IMAGE_FRAME
+          }
+      }
+  }
+}
+
+# Transfers the annotated image from CPU back to GPU memory, to be sent out of
+# the graph.
+node: {
+  calculator: "ImageFrameToGpuBufferCalculator"
+  input_stream: "output_stream_cpu"
+  output_stream: "output_stream"
+}
+
+node {
+  calculator: "FlowLimiterCalculator"
+  input_stream: "input_stream"
+  input_stream: "FINISHED:output_stream"
+  input_stream_info: {
+    tag_index: "FINISHED"
+    back_edge: true
+  }
+  output_stream: "sampled_images"
+}

@@ -1,12 +1,12 @@
 
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
-#include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/formats/image_frame.h"
-
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
+#include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/status_matchers.h"
+#include "mediapipe/gpu/gl_calculator_helper.h"
 
 #include "tools/cpp/runfiles/runfiles.h"
 using bazel::tools::cpp::runfiles::Runfiles;
@@ -52,7 +52,7 @@ TEST(LluviaCalculatorTest, TestLoadNodeLibrary) {
 
 }
 
-TEST(LluviaCalculatorTest, TestMoni) {
+TEST(LluviaCalculatorTest, TestRunCalculator) {
 
     auto runfiles = Runfiles::CreateForTest(nullptr);
     ASSERT_NE(nullptr, runfiles);
@@ -83,6 +83,13 @@ TEST(LluviaCalculatorTest, TestMoni) {
                             input_port_binding:  {
                                 mediapipe_tag: "IN_0"
                                 lluvia_port: "in_image"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image"
+                                packet_type: IMAGE_FRAME
                             }
                         }
                     }
@@ -94,13 +101,7 @@ TEST(LluviaCalculatorTest, TestMoni) {
     
     CalculatorRunner runner(node_config);
 
-    // cv::Mat input_mat;
-    // cv::cvtColor(cv::imread(file::JoinPath("./",
-    //                                         "/mediapipe/calculators/"
-    //                                         "image/testdata/dino.jpg")),
-    //             input_mat, cv::COLOR_BGR2RGB);
     Packet input_packet = MakePacket<ImageFrame>(ImageFormat::SRGBA, 1920, 1080);
-    // input_mat.copyTo(formats::MatView(&(input_packet.Get<ImageFrame>())));
 
     runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));
 
@@ -126,8 +127,8 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
             absl::Substitute(
                 R"pb(
                     calculator: "LluviaCalculator"
-                    input_stream: "IN_0:input_image"
-                    output_stream: "OUT_0:output_image"
+                    input_stream: "IN_0:input_image_0"
+                    output_stream: "OUT_0:output_image_0"
                     node_options {
                         [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
                             enable_debug: true
@@ -140,7 +141,14 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
 
                             input_port_binding:  {
                                 mediapipe_tag: "IN_0"
-                                lluvia_port: "in_image"
+                                lluvia_port: "in_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image_0"
+                                packet_type: IMAGE_FRAME
                             }
                         }
                     }
@@ -176,10 +184,196 @@ TEST(LluviaCalculatorTest, TestCompatibleImageFormats) {
         ASSERT_EQ(out_image.Width(), 1920);
         ASSERT_EQ(out_image.Height(), 1080);
     }
-    
-    
 }
 
+TEST(LluviaCalculatorTest, TestMultipleInputs) {
+
+    auto runfiles = Runfiles::CreateForTest(nullptr);
+    ASSERT_NE(nullptr, runfiles);
+
+    auto libraryPath = runfiles->Rlocation("lluvia/lluvia/nodes/lluvia_node_library.zip");
+    auto calculatorScriptPath = runfiles->Rlocation("mediapipe/mediapipe/lluvia-mediapipe/calculators/test_data/PassthroughContainerNode.lua");
+    
+    LOG(INFO) << "LLUVIA_TEST: library path: " << libraryPath;
+    LOG(INFO) << "LLUVIA_TEST: script path: " << calculatorScriptPath;
+
+
+    CalculatorGraphConfig::Node node_config =
+        ParseTextProtoOrDie<CalculatorGraphConfig::Node>(
+            absl::Substitute(
+                R"pb(
+                    calculator: "LluviaCalculator"
+                    input_stream: "IN_0:input_image_0"
+                    input_stream: "IN_1:input_image_1"
+                    output_stream: "OUT_0:output_image_0"
+                    output_stream: "OUT_1:output_image_1"
+                    node_options {
+                        [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+                            enable_debug: true
+
+                            container_node: "mediapipe/test/PassthroughContainerNode"
+
+                            library_path: "$0"
+
+                            script_path: "$1"
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_0"
+                                lluvia_port: "in_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_1"
+                                lluvia_port: "in_image_1"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_1"
+                                lluvia_port: "out_image_1"
+                                packet_type: IMAGE_FRAME
+                            }
+                        }
+                    }
+                )pb",
+                libraryPath,
+                calculatorScriptPath
+            )
+        );
+    
+    CalculatorRunner runner(node_config);
+
+    auto inputPacket0 = MakePacket<ImageFrame>(ImageFormat::SRGBA, 1920, 1080);
+    auto inputPacket1 = MakePacket<ImageFrame>(ImageFormat::GRAY8, 720, 480);
+
+
+    runner.MutableInputs()->Tag("IN_0").packets.push_back(inputPacket0.At(Timestamp(0)));
+    runner.MutableInputs()->Tag("IN_1").packets.push_back(inputPacket1.At(Timestamp(0)));
+
+    MP_ASSERT_OK(runner.Run());
+
+    LOG(INFO) << "packet size: " << runner.Outputs().Tag("OUT_0").packets.size();
+
+    ASSERT_TRUE(runner.Outputs().Tag("OUT_0").packets.size() >= 1);
+    ASSERT_TRUE(runner.Outputs().Tag("OUT_1").packets.size() >= 1);
+
+    auto outPacket0 = runner.Outputs().Tag("OUT_0").packets[0];
+    auto outPacket1 = runner.Outputs().Tag("OUT_1").packets[0];
+
+    auto& outImage0 = outPacket0.Get<ImageFrame>();
+    ASSERT_EQ(outImage0.Format(), ImageFormat::SRGBA);
+    ASSERT_EQ(outImage0.Width(), 1920);
+    ASSERT_EQ(outImage0.Height(), 1080);
+
+    auto& outImage1 = outPacket1.Get<ImageFrame>();
+    ASSERT_EQ(outImage1.Format(), ImageFormat::GRAY8);
+    ASSERT_EQ(outImage1.Width(), 720);
+    ASSERT_EQ(outImage1.Height(), 480);
+}
+
+TEST(LluviaCalculatorTest, TestInputGPUBuffer) {
+
+    auto runfiles = Runfiles::CreateForTest(nullptr);
+    ASSERT_NE(nullptr, runfiles);
+
+    auto libraryPath = runfiles->Rlocation("lluvia/lluvia/nodes/lluvia_node_library.zip");
+    auto calculatorScriptPath = runfiles->Rlocation("mediapipe/mediapipe/lluvia-mediapipe/calculators/test_data/PassthroughContainerNode.lua");
+    
+    LOG(INFO) << "LLUVIA_TEST: library path: " << libraryPath;
+    LOG(INFO) << "LLUVIA_TEST: script path: " << calculatorScriptPath;
+
+
+    CalculatorGraphConfig::Node node_config =
+        ParseTextProtoOrDie<CalculatorGraphConfig::Node>(
+            absl::Substitute(
+                R"pb(
+                    calculator: "LluviaCalculator"
+                    input_stream: "IN_0:input_image_0"
+                    output_stream: "OUT_0:output_image_0"
+                    node_options {
+                        [type.googleapis.com/lluvia.LluviaCalculatorOptions]: {
+                            enable_debug: true
+
+                            container_node: "mediapipe/test/PassthroughContainerNode"
+
+                            library_path: "$0"
+
+                            script_path: "$1"
+
+                            input_port_binding:  {
+                                mediapipe_tag: "IN_0"
+                                lluvia_port: "in_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+
+                            output_port_binding:  {
+                                mediapipe_tag: "OUT_0"
+                                lluvia_port: "out_image_0"
+                                packet_type: IMAGE_FRAME
+                            }
+                        }
+                    }
+                )pb",
+                libraryPath,
+                calculatorScriptPath
+            )
+        );
+    
+    // FIXME: only these formats work, all others complain about ByteDepth different to 1 image_frame.cc:379
+    const auto imageFormats = std::array {ImageFormat::SRGBA, ImageFormat::GRAY8};
+    
+    for (const auto& imageFormat : imageFormats) {
+
+        CalculatorRunner runner(node_config);
+
+        ///////////////////////////////////////////////////////////////////////
+        // GlCalculatorHelper glHelper;
+        // glHelper.Open();
+        // helper_.RunInGlContext([this, &cc]() {
+
+        //     std::unique_ptr<ImageFrame> outputImage = absl::make_unique<ImageFrame>(
+        //             ImageFormat::GRAY8,
+        //             this->m_outputImage->getWidth(),
+        //             this->m_outputImage->getHeight(),
+        //             this->m_outputImage->getSize() / this->m_outputImage->getHeight(),
+        //             &(this->m_outputStagingBufferMapped[0]),
+        //             NopDeleter{}
+        //             );
+
+        //     auto src = this->helper_.CreateSourceTexture(*outputImage);
+        //     auto output = src.GetFrame<GpuBuffer>();
+        //     glFlush();
+        // });
+
+        ///////////////////////////////////////////////////////////////////////
+
+        // TOOD: make a GpuBuffer
+        Packet input_packet = MakePacket<ImageFrame>(imageFormat, 1920, 1080);
+
+        runner.MutableInputs()->Tag("IN_0").packets.push_back(input_packet.At(Timestamp(0)));
+
+        MP_ASSERT_OK(runner.Run());
+
+        LOG(INFO) << "packet size: " << runner.Outputs().Tag("OUT_0").packets.size();
+
+        ASSERT_TRUE(runner.Outputs().Tag("OUT_0").packets.size() >= 1);
+
+        auto outPacket = runner.Outputs().Tag("OUT_0").packets[0];
+
+        auto& out_image = outPacket.Get<ImageFrame>();
+
+        ASSERT_EQ(out_image.Format(), imageFormat);
+        ASSERT_EQ(out_image.Width(), 1920);
+        ASSERT_EQ(out_image.Height(), 1080);
+    }
+}
 
 } // namespace
 } // namespace mediapipe
