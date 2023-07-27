@@ -1,7 +1,7 @@
 #load("//mediapipe/mpgenius/bazel:defs.bzl", "mediapipe_aar", "proto_java_src_generator")
 load("//mediapipe/java/com/google/mediapipe:mediapipe_aar.bzl", "mediapipe_aar")
 load("@lluvia//lluvia/bazel/node:def.bzl", "ll_node_library")
-load("@lluvia//lluvia/nodes:def.bzl", "LLUVIA_NODE_LIBRARY_STRIP_PREFIX", "LLUVIA_NODE_LIBRARY_NODES")
+load("@lluvia//lluvia/nodes:def.bzl", "LLUVIA_NODE_LIBRARY_NODES", "LLUVIA_NODE_LIBRARY_STRIP_PREFIX")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -10,9 +10,9 @@ package(default_visibility = ["//visibility:public"])
 # the node library needs to be built in this workspace so that the AAR target can package it.
 ll_node_library(
     name = "lluvia_node_library",
-    strip_prefix = LLUVIA_NODE_LIBRARY_STRIP_PREFIX,
     nodes = LLUVIA_NODE_LIBRARY_NODES,
-    visibility = ["//visibility:public"]
+    strip_prefix = LLUVIA_NODE_LIBRARY_STRIP_PREFIX,
+    visibility = ["//visibility:public"],
 )
 
 """
@@ -20,6 +20,7 @@ bazel build -c opt --host_crosstool_top=@bazel_tools//tools/cpp:toolchain --fat_
     rm -rf ~/git/lluvia-playground/app/libs/lluvia_aar.aar; \
     cp bazel-bin/mediapipe/lluvia-mediapipe/java/ai/lluvia/lluvia_aar.aar ~/git/lluvia-playground/app/libs/
 """
+
 mediapipe_aar(
     name = "lluvia_aar",
     assets = [
@@ -28,12 +29,15 @@ mediapipe_aar(
         "//mediapipe/lluvia-mediapipe/graphs/mobile/HornSchunck:runfiles",
         "//mediapipe/lluvia-mediapipe/graphs/mobile/FlowFilter:binary_graph",
         "//mediapipe/lluvia-mediapipe/graphs/mobile/FlowFilter:runfiles",
-        ":lluvia_node_library"
+        "//mediapipe/lluvia-mediapipe/graphs/mobile/ColorMapping:binary_graph",
+        "//mediapipe/lluvia-mediapipe/graphs/mobile/ColorMapping:runfiles",
+        ":lluvia_node_library",
     ],
     assets_dir = "",
     calculators = [
         "//mediapipe/lluvia-mediapipe/graphs/mobile/passthrough:calculators",
         "//mediapipe/lluvia-mediapipe/graphs/mobile/HornSchunck:calculators",
         "//mediapipe/lluvia-mediapipe/graphs/mobile/FlowFilter:calculators",
+        "//mediapipe/lluvia-mediapipe/graphs/mobile/ColorMapping:calculators",
     ],
 )
